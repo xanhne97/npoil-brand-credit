@@ -1,0 +1,161 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+  <div>
+    <div class="hero-label mb-2"><i class="bi bi-graph-up-arrow"></i> Dashboard KPI</div>
+    <h1 class="hero-title mb-1">KPI tổng quan chương trình</h1>
+    <p class="hero-muted mb-0">Theo dõi người tham gia, bài hợp lệ, điểm/credit, lượt tìm kiếm khách hàng và hiệu quả vận hành theo tháng.</p>
+  </div>
+  <a class="btn btn-success" href="{{ url_for('admin_kpi_download', month=month, group_type=group_type, unit=unit) }}">
+    <i class="bi bi-file-earmark-excel-fill me-1"></i>Xuất Excel KPI
+  </a>
+</div>
+
+<form class="card app-card mb-4" method="get">
+  <div class="card-body">
+    <div class="row g-3 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label fw-bold">Tháng</label>
+        <input class="form-control" type="month" name="month" value="{{ month }}">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label fw-bold">Nhóm</label>
+        <select class="form-select" name="group_type">
+          <option value="all" {% if group_type=='all' %}selected{% endif %}>Tất cả</option>
+          <option value="employee" {% if group_type=='employee' %}selected{% endif %}>Nhân viên</option>
+          <option value="distributor" {% if group_type=='distributor' %}selected{% endif %}>Nhà phân phối</option>
+          <option value="dealer" {% if group_type=='dealer' %}selected{% endif %}>Đại lý</option>
+        </select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-bold">Lọc đơn vị / tên / email</label>
+        <input class="form-control" name="unit" value="{{ unit }}" placeholder="VD: Marketing, NPP A, đại lý B...">
+      </div>
+      <div class="col-md-2 d-grid">
+        <button class="btn btn-warning"><i class="bi bi-funnel-fill me-1"></i>Lọc KPI</button>
+      </div>
+    </div>
+  </div>
+</form>
+
+<div class="row g-3 mb-4">
+  <div class="col-6 col-xl-3"><div class="card stat-card h-100"><div class="card-body"><div class="small-muted">Người tham gia</div><h3>{{ summary.users_total }}</h3><div class="small text-muted">Mới tháng này: {{ summary.new_users }}</div></div></div></div>
+  <div class="col-6 col-xl-3"><div class="card stat-card h-100"><div class="card-body"><div class="small-muted">Người có hoạt động</div><h3>{{ summary.submitting_users }}</h3><div class="small text-muted">Tỷ lệ tham gia: {{ summary.participation_rate }}%</div></div></div></div>
+  <div class="col-6 col-xl-3"><div class="card stat-card h-100"><div class="card-body"><div class="small-muted">Bài hợp lệ</div><h3>{{ summary.valid_posts }}</h3><div class="small text-muted">Tỷ lệ duyệt: {{ summary.approval_rate }}%</div></div></div></div>
+  <div class="col-6 col-xl-3"><div class="card stat-card h-100"><div class="card-body"><div class="small-muted">Đủ điều kiện xét giải</div><h3>{{ summary.eligible_users }}</h3><div class="small text-muted">Đã chốt giải: {{ summary.winners_count }}</div></div></div></div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-6 col-xl-3"><div class="card app-card h-100"><div class="card-body"><div class="small-muted">Tổng bài gửi</div><h3 class="mb-1">{{ summary.total_submissions }}</h3><div class="small text-muted">Chờ kiểm tra: {{ summary.pending_review }} · Cần bổ sung: {{ summary.need_more_proof }}</div></div></div></div>
+  <div class="col-6 col-xl-3"><div class="card app-card h-100"><div class="card-body"><div class="small-muted">Tự động duyệt</div><h3 class="mb-1">{{ summary.auto_approved }}</h3><div class="small text-muted">Admin duyệt: {{ summary.admin_approved }} · Từ chối: {{ summary.rejected }}</div></div></div></div>
+  <div class="col-6 col-xl-3"><div class="card app-card h-100"><div class="card-body"><div class="small-muted">Credit đã cấp</div><h3 class="mb-1">{{ summary.credit_awarded }}</h3><div class="small text-muted">Giao dịch cộng: {{ summary.credit_earned }} credit</div></div></div></div>
+  <div class="col-6 col-xl-3"><div class="card app-card h-100"><div class="card-body"><div class="small-muted">Credit đã dùng</div><h3 class="mb-1">{{ summary.credit_spent }}</h3><div class="small text-muted">Ước tính tìm kiếm/xuất Excel: {{ summary.search_spend_estimate }}</div></div></div></div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-lg-8">
+    <div class="card app-card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center"><strong>Xu hướng 6 tháng gần nhất</strong><span class="small-muted">Bài gửi · Bài hợp lệ · Người hoạt động · Tìm kiếm</span></div>
+      <div class="card-body">
+        {% for item in trend %}
+          <div class="mb-3">
+            <div class="d-flex justify-content-between small fw-bold mb-1"><span>{{ item.month }}</span><span>{{ item.submissions }} bài gửi · {{ item.valid_posts }} hợp lệ · {{ item.searches }} tìm kiếm</span></div>
+            <div class="kpi-bars">
+              <div class="kpi-bar submissions" style="width: {{ (item.submissions / max_trend * 100) if max_trend else 0 }}%"></div>
+              <div class="kpi-bar valid" style="width: {{ (item.valid_posts / max_trend * 100) if max_trend else 0 }}%"></div>
+              <div class="kpi-bar users" style="width: {{ (item.active_users / max_trend * 100) if max_trend else 0 }}%"></div>
+              <div class="kpi-bar searches" style="width: {{ (item.searches / max_trend * 100) if max_trend else 0 }}%"></div>
+            </div>
+          </div>
+        {% endfor %}
+        <div class="d-flex flex-wrap gap-3 small text-muted mt-3">
+          <span><i class="bi bi-square-fill text-orange"></i> Bài gửi</span>
+          <span><i class="bi bi-square-fill text-green"></i> Bài hợp lệ</span>
+          <span><i class="bi bi-square-fill text-primary"></i> Người hoạt động</span>
+          <span><i class="bi bi-square-fill text-secondary"></i> Tìm kiếm</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card app-card h-100">
+      <div class="card-header"><strong>Lead Search Module</strong></div>
+      <div class="card-body">
+        <div class="d-flex justify-content-between border-bottom py-2"><span>Lượt tìm kiếm</span><strong>{{ summary.search_count }}</strong></div>
+        <div class="d-flex justify-content-between border-bottom py-2"><span>Khách hàng/địa điểm trả về</span><strong>{{ summary.lead_count }}</strong></div>
+        <div class="d-flex justify-content-between border-bottom py-2"><span>Xuất Excel</span><strong>{{ summary.export_count }}</strong></div>
+        <div class="d-flex justify-content-between py-2"><span>Credit tìm kiếm</span><strong>{{ summary.search_credit_cost }}</strong></div>
+        <a class="btn btn-outline-warning w-100 mt-3" href="{{ url_for('admin_reports', month=month, group_type=group_type, unit=unit) }}"><i class="bi bi-table me-1"></i>Xem báo cáo chi tiết</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-lg-6">
+    <div class="card app-card h-100">
+      <div class="card-header"><strong>KPI theo nhóm tham gia</strong></div>
+      <div class="card-body p-0 table-responsive">
+        <table class="table table-hover mb-0">
+          <thead><tr><th>Nhóm</th><th>Người</th><th>Bài gửi</th><th>Hợp lệ</th><th>Chờ</th><th>Credit</th></tr></thead>
+          <tbody>
+          {% for r in group_rows %}
+            <tr>
+              <td><strong>{{ group_label(r.group_type) }}</strong></td>
+              <td>{{ r.users or 0 }}</td>
+              <td>{{ r.submissions or 0 }}</td>
+              <td>{{ r.valid_posts or 0 }}</td>
+              <td>{{ r.pending_review or 0 }}</td>
+              <td>{{ r.credit_awarded or 0 }}</td>
+            </tr>
+          {% else %}<tr><td colspan="6" class="text-center text-muted py-4">Chưa có dữ liệu.</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card app-card h-100">
+      <div class="card-header"><strong>Nhiệm vụ hiệu quả nhất</strong></div>
+      <div class="card-body p-0 table-responsive">
+        <table class="table table-hover mb-0">
+          <thead><tr><th>Nhiệm vụ</th><th>Nền tảng</th><th>Bài gửi</th><th>Hợp lệ</th><th>Credit</th></tr></thead>
+          <tbody>
+          {% for r in mission_rows %}
+            <tr>
+              <td><strong>{{ r.title }}</strong><div class="small-muted">{{ r.mission_type }}</div></td>
+              <td>{{ r.platform }}</td>
+              <td>{{ r.submissions or 0 }}</td>
+              <td>{{ r.valid_posts or 0 }}</td>
+              <td>{{ r.credit_awarded or 0 }}</td>
+            </tr>
+          {% else %}<tr><td colspan="5" class="text-center text-muted py-4">Chưa có dữ liệu.</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card app-card">
+  <div class="card-header d-flex justify-content-between align-items-center"><strong>Top người dẫn đầu tháng {{ month }}</strong><a class="small fw-bold text-decoration-none" href="{{ url_for('leaderboard', month=month, group_type=group_type, unit=unit) }}">Xem bảng xếp hạng đầy đủ</a></div>
+  <div class="card-body p-0 table-responsive">
+    <table class="table table-hover mb-0">
+      <thead><tr><th>Hạng</th><th>Người tham gia</th><th>Nhóm/đơn vị</th><th>Điểm 100</th><th>Bài hợp lệ</th><th>Trọng điểm</th><th>Điều kiện</th></tr></thead>
+      <tbody>
+      {% for r in top_users %}
+        <tr>
+          <td><span class="rank-medal">{{ loop.index }}</span></td>
+          <td><strong>{{ r.name }}</strong><div class="small-muted">{{ r.email }}</div></td>
+          <td>{{ group_label(r.group_type) }}<div class="small-muted">{{ unit_name_from_row(r) }}</div></td>
+          <td><strong>{{ r.final_score }}</strong></td>
+          <td>{{ r.valid_posts }}</td>
+          <td>{{ r.compliance_raw }}</td>
+          <td>{% if r.is_prize_eligible %}<span class="badge text-bg-success">Đủ</span>{% else %}<span class="badge text-bg-secondary">Chưa đủ</span>{% endif %}</td>
+        </tr>
+      {% else %}<tr><td colspan="7" class="text-center text-muted py-4">Chưa có dữ liệu xếp hạng tháng này.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

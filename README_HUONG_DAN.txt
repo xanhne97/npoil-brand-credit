@@ -137,3 +137,10 @@ Bản V10 bổ sung trung tâm thông báo trong hệ thống:
 
 Khi upload lên GitHub/Render nhớ upload đủ thư mục templates/ và static/.
 Không upload: venv, .env, __pycache__, npoil_brand_credit.db.
+
+
+V11 - Dashboard KPI tổng quan
+- Thêm trang /admin/kpi để ban quản lý xem KPI theo tháng, nhóm và đơn vị.
+- Theo dõi: người tham gia, người hoạt động, bài gửi, bài hợp lệ, bài chờ duyệt, credit đã cấp/đã dùng, lượt tìm kiếm khách hàng, số lead trả về, top người dẫn đầu, KPI theo nhóm và nhiệm vụ hiệu quả.
+- Có nút xuất Excel KPI tại /admin/kpi/download.
+- Menu Admin có thêm mục “KPI tổng quan”.

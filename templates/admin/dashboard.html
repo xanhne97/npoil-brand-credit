@@ -14,9 +14,9 @@
   <div class="col-6 col-xl-3"><div class="card stat-card h-100"><div class="card-body"><div class="small-muted">Lượt tìm kiếm</div><h3>{{ stats.searches }}</h3></div></div></div>
 </div>
 <div class="row g-3 mb-4">
+  <div class="col-md-3"><a class="card app-card h-100 text-decoration-none" href="{{ url_for('admin_kpi') }}"><div class="card-body"><span class="icon-bubble mb-3"><i class="bi bi-graph-up-arrow"></i></span><h5>KPI tổng quan</h5><div class="small-muted">Theo dõi người tham gia, bài hợp lệ, credit, tìm kiếm và xu hướng.</div></div></a></div>
   <div class="col-md-3"><a class="card app-card h-100 text-decoration-none" href="{{ url_for('admin_missions') }}"><div class="card-body"><span class="icon-bubble mb-3"><i class="bi bi-list-task"></i></span><h5>Tạo nhiệm vụ</h5><div class="small-muted">Thiết lập bài trọng điểm, hashtag, điểm và credit.</div></div></a></div>
   <div class="col-md-3"><a class="card app-card h-100 text-decoration-none" href="{{ url_for('admin_submissions') }}"><div class="card-body"><span class="icon-bubble mb-3"><i class="bi bi-clipboard-check-fill"></i></span><h5>Duyệt ngoại lệ</h5><div class="small-muted">Xử lý bài cần kiểm tra hoặc bổ sung minh chứng.</div></div></a></div>
-  <div class="col-md-3"><a class="card app-card h-100 text-decoration-none" href="{{ url_for('admin_prizes') }}"><div class="card-body"><span class="icon-bubble mb-3"><i class="bi bi-award-fill"></i></span><h5>Giải thưởng</h5><div class="small-muted">Chỉnh mốc giải và giá trị giải thưởng.</div></div></a></div>
   <div class="col-md-3"><a class="card app-card h-100 text-decoration-none" href="{{ url_for('admin_winners') }}"><div class="card-body"><span class="icon-bubble mb-3"><i class="bi bi-patch-check-fill"></i></span><h5>Chốt giải</h5><div class="small-muted">Tự động lấy top bảng xếp hạng và lưu kết quả.</div></div></a></div>
 </div>
 <div class="card app-card">

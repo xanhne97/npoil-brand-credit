@@ -478,6 +478,250 @@ def get_ranking_rows(conn, month, limit=None):
     return get_fair_ranking_rows(conn, month, limit=limit, prize_eligible_only=True)
 
 
+
+def month_add(month_key, delta):
+    """Return YYYY-MM after adding delta months to a YYYY-MM string."""
+    try:
+        year, month = [int(x) for x in month_key.split("-")[:2]]
+    except Exception:
+        year, month = datetime.now().year, datetime.now().month
+    month += delta
+    while month <= 0:
+        month += 12
+        year -= 1
+    while month > 12:
+        month -= 12
+        year += 1
+    return f"{year:04d}-{month:02d}"
+
+
+def safe_percent(part, total):
+    try:
+        part = float(part or 0)
+        total = float(total or 0)
+        if total <= 0:
+            return 0
+        return round((part / total) * 100, 1)
+    except Exception:
+        return 0
+
+
+def one_row(conn, sql, params=()):
+    row = conn.execute(sql, params).fetchone()
+    return row or {}
+
+
+def get_kpi_context(conn, month, group_type="all", unit_keyword=""):
+    """Build KPI dashboard data for admin pages.
+
+    V11 focuses on verified operational metrics: users, submissions, valid posts,
+    credit, searches, pending review and winners. It does not rely on manually
+    entered interaction/follow numbers.
+    """
+    where_sql, params = user_filter_sql(group_type, unit_keyword)
+    where_sql = where_sql + " AND u.status='active'"
+
+    users_total = one_row(
+        conn,
+        f"SELECT COUNT(*) AS c FROM users u WHERE {where_sql}",
+        tuple(params),
+    )["c"]
+
+    new_users = one_row(
+        conn,
+        f"SELECT COUNT(*) AS c FROM users u WHERE {where_sql} AND substr(u.created_at,1,7)=?",
+        tuple(params + [month]),
+    )["c"]
+
+    sub = one_row(
+        conn,
+        f"""
+        SELECT COUNT(*) AS total_submissions,
+               COUNT(DISTINCT s.user_id) AS submitting_users,
+               SUM(CASE WHEN s.status IN ('auto_approved','approved') THEN 1 ELSE 0 END) AS valid_posts,
+               SUM(CASE WHEN s.status='auto_approved' THEN 1 ELSE 0 END) AS auto_approved,
+               SUM(CASE WHEN s.status='approved' THEN 1 ELSE 0 END) AS admin_approved,
+               SUM(CASE WHEN s.status IN ('pending','need_review') THEN 1 ELSE 0 END) AS pending_review,
+               SUM(CASE WHEN s.status='need_more_proof' THEN 1 ELSE 0 END) AS need_more_proof,
+               SUM(CASE WHEN s.status='rejected' THEN 1 ELSE 0 END) AS rejected,
+               SUM(CASE WHEN s.status IN ('auto_approved','approved') THEN COALESCE(s.points_awarded,0) ELSE 0 END) AS points_awarded,
+               SUM(CASE WHEN s.status IN ('auto_approved','approved') THEN COALESCE(s.credit_awarded,0) ELSE 0 END) AS credit_awarded
+        FROM submissions s
+        JOIN users u ON u.id=s.user_id
+        WHERE {where_sql} AND substr(s.created_at,1,7)=?
+        """,
+        tuple(params + [month]),
+    )
+
+    search = one_row(
+        conn,
+        f"""
+        SELECT COUNT(*) AS search_count,
+               SUM(COALESCE(l.result_count,0)) AS lead_count,
+               SUM(COALESCE(l.credit_cost,0)) AS search_credit_cost,
+               SUM(CASE WHEN COALESCE(l.export_charged,0)=1 THEN 1 ELSE 0 END) AS export_count
+        FROM search_logs l
+        JOIN users u ON u.id=l.user_id
+        WHERE {where_sql} AND substr(l.created_at,1,7)=?
+        """,
+        tuple(params + [month]),
+    )
+
+    credit = one_row(
+        conn,
+        f"""
+        SELECT SUM(CASE WHEN c.amount > 0 THEN c.amount ELSE 0 END) AS credit_earned,
+               SUM(CASE WHEN c.amount < 0 THEN -c.amount ELSE 0 END) AS credit_spent,
+               COUNT(*) AS credit_transactions
+        FROM credit_transactions c
+        JOIN users u ON u.id=c.user_id
+        WHERE {where_sql} AND substr(c.created_at,1,7)=?
+        """,
+        tuple(params + [month]),
+    )
+
+    winners_count = one_row(
+        conn,
+        f"""
+        SELECT COUNT(*) AS c
+        FROM monthly_winners w
+        JOIN users u ON u.id=w.user_id
+        WHERE {where_sql} AND w.month_key=?
+        """,
+        tuple(params + [month]),
+    )["c"]
+
+    settings = get_app_settings(conn)
+    export_excel_credit = setting_int(settings, "export_excel_credit", EXPORT_EXCEL_CREDIT)
+    total_search_spend_estimate = int(search["search_credit_cost"] or 0) + (int(search["export_count"] or 0) * export_excel_credit)
+
+    rows = get_fair_ranking_rows(
+        conn,
+        month,
+        group_type=group_type,
+        unit_keyword=unit_keyword,
+        limit=10,
+        prize_eligible_only=False,
+        include_zero=False,
+    )
+    all_rows = get_fair_ranking_rows(
+        conn,
+        month,
+        group_type=group_type,
+        unit_keyword=unit_keyword,
+        prize_eligible_only=False,
+        include_zero=False,
+    )
+    eligible_count = sum(1 for r in all_rows if r.get("is_prize_eligible"))
+
+    group_rows = conn.execute(
+        f"""
+        SELECT u.group_type,
+               COUNT(DISTINCT u.id) AS users,
+               COUNT(s.id) AS submissions,
+               SUM(CASE WHEN s.status IN ('auto_approved','approved') THEN 1 ELSE 0 END) AS valid_posts,
+               SUM(CASE WHEN s.status IN ('pending','need_review') THEN 1 ELSE 0 END) AS pending_review,
+               SUM(CASE WHEN s.status IN ('auto_approved','approved') THEN COALESCE(s.points_awarded,0) ELSE 0 END) AS points_awarded,
+               SUM(CASE WHEN s.status IN ('auto_approved','approved') THEN COALESCE(s.credit_awarded,0) ELSE 0 END) AS credit_awarded
+        FROM users u
+        LEFT JOIN submissions s ON s.user_id=u.id AND substr(s.created_at,1,7)=?
+        WHERE {where_sql}
+        GROUP BY u.group_type
+        ORDER BY u.group_type
+        """,
+        tuple([month] + params),
+    ).fetchall()
+
+    mission_rows = conn.execute(
+        f"""
+        SELECT m.title, m.platform, m.mission_type,
+               COUNT(s.id) AS submissions,
+               SUM(CASE WHEN s.status IN ('auto_approved','approved') THEN 1 ELSE 0 END) AS valid_posts,
+               SUM(CASE WHEN s.status IN ('auto_approved','approved') THEN COALESCE(s.points_awarded,0) ELSE 0 END) AS points_awarded,
+               SUM(CASE WHEN s.status IN ('auto_approved','approved') THEN COALESCE(s.credit_awarded,0) ELSE 0 END) AS credit_awarded
+        FROM submissions s
+        JOIN missions m ON m.id=s.mission_id
+        JOIN users u ON u.id=s.user_id
+        WHERE {where_sql} AND substr(s.created_at,1,7)=?
+        GROUP BY m.id, m.title, m.platform, m.mission_type
+        ORDER BY valid_posts DESC, submissions DESC, m.id DESC
+        LIMIT 8
+        """,
+        tuple(params + [month]),
+    ).fetchall()
+
+    trend_months = [month_add(month, i) for i in range(-5, 1)]
+    trend = []
+    for m in trend_months:
+        tsub = one_row(
+            conn,
+            f"""
+            SELECT COUNT(*) AS submissions,
+                   SUM(CASE WHEN s.status IN ('auto_approved','approved') THEN 1 ELSE 0 END) AS valid_posts,
+                   COUNT(DISTINCT s.user_id) AS active_users
+            FROM submissions s
+            JOIN users u ON u.id=s.user_id
+            WHERE {where_sql} AND substr(s.created_at,1,7)=?
+            """,
+            tuple(params + [m]),
+        )
+        tsea = one_row(
+            conn,
+            f"""
+            SELECT COUNT(*) AS searches
+            FROM search_logs l
+            JOIN users u ON u.id=l.user_id
+            WHERE {where_sql} AND substr(l.created_at,1,7)=?
+            """,
+            tuple(params + [m]),
+        )
+        trend.append({
+            "month": m,
+            "submissions": int(tsub["submissions"] or 0),
+            "valid_posts": int(tsub["valid_posts"] or 0),
+            "active_users": int(tsub["active_users"] or 0),
+            "searches": int(tsea["searches"] or 0),
+        })
+    max_trend = max([max(x["submissions"], x["valid_posts"], x["active_users"], x["searches"]) for x in trend] or [1]) or 1
+
+    summary = {
+        "users_total": int(users_total or 0),
+        "new_users": int(new_users or 0),
+        "submitting_users": int(sub["submitting_users"] or 0),
+        "eligible_users": int(eligible_count or 0),
+        "total_submissions": int(sub["total_submissions"] or 0),
+        "valid_posts": int(sub["valid_posts"] or 0),
+        "auto_approved": int(sub["auto_approved"] or 0),
+        "admin_approved": int(sub["admin_approved"] or 0),
+        "pending_review": int(sub["pending_review"] or 0),
+        "need_more_proof": int(sub["need_more_proof"] or 0),
+        "rejected": int(sub["rejected"] or 0),
+        "points_awarded": int(sub["points_awarded"] or 0),
+        "credit_awarded": int(sub["credit_awarded"] or 0),
+        "credit_earned": int(credit["credit_earned"] or 0),
+        "credit_spent": int(credit["credit_spent"] or 0),
+        "search_count": int(search["search_count"] or 0),
+        "lead_count": int(search["lead_count"] or 0),
+        "search_credit_cost": int(search["search_credit_cost"] or 0),
+        "export_count": int(search["export_count"] or 0),
+        "search_spend_estimate": int(total_search_spend_estimate or 0),
+        "winners_count": int(winners_count or 0),
+        "approval_rate": safe_percent(sub["valid_posts"], sub["total_submissions"]),
+        "participation_rate": safe_percent(sub["submitting_users"], users_total),
+    }
+
+    return {
+        "summary": summary,
+        "top_users": rows,
+        "group_rows": group_rows,
+        "mission_rows": mission_rows,
+        "trend": trend,
+        "max_trend": max_trend,
+        "month": month,
+        "group_type": group_type,
+        "unit": unit_keyword,
+    }
+
 def user_filter_sql(group_type, unit_keyword):
     where = ["u.is_admin=0"]
     params = []
@@ -2076,6 +2320,84 @@ def admin_winners_download():
         output,
         as_attachment=True,
         download_name=f"danh_sach_trao_giai_npoil_{month}.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+
+@app.route("/admin/kpi")
+@login_required
+@admin_required
+def admin_kpi():
+    month = request.args.get("month") or current_month()
+    group_type = request.args.get("group_type", "all")
+    unit = request.args.get("unit", "").strip()
+    with db() as conn:
+        ctx = get_kpi_context(conn, month, group_type, unit)
+    return render_template("admin/kpi.html", **ctx)
+
+
+@app.route("/admin/kpi/download")
+@login_required
+@admin_required
+def admin_kpi_download():
+    month = request.args.get("month") or current_month()
+    group_type = request.args.get("group_type", "all")
+    unit = request.args.get("unit", "").strip()
+    with db() as conn:
+        ctx = get_kpi_context(conn, month, group_type, unit)
+
+    summary_rows = [{"Chỉ số": key, "Giá trị": value} for key, value in ctx["summary"].items()]
+    top_rows = []
+    for i, row in enumerate(ctx["top_users"], start=1):
+        top_rows.append({
+            "Hạng": i,
+            "Họ tên": row.get("name"),
+            "Email": row.get("email"),
+            "Nhóm": group_label(row.get("group_type")),
+            "Đơn vị": unit_name_from_row(row),
+            "Điểm xếp hạng": row.get("final_score"),
+            "Bài hợp lệ": row.get("valid_posts"),
+            "Bài trọng điểm": row.get("compliance_raw"),
+            "Credit hiện có": row.get("credit_balance"),
+            "Đủ điều kiện xét giải": "Có" if row.get("is_prize_eligible") else "Không",
+        })
+    group_rows = []
+    for row in ctx["group_rows"]:
+        group_rows.append({
+            "Nhóm": group_label(row["group_type"]),
+            "Người dùng": int(row["users"] or 0),
+            "Bài gửi": int(row["submissions"] or 0),
+            "Bài hợp lệ": int(row["valid_posts"] or 0),
+            "Chờ kiểm tra": int(row["pending_review"] or 0),
+            "Điểm đã cộng": int(row["points_awarded"] or 0),
+            "Credit đã cấp": int(row["credit_awarded"] or 0),
+        })
+    mission_rows = []
+    for row in ctx["mission_rows"]:
+        mission_rows.append({
+            "Nhiệm vụ": row["title"],
+            "Nền tảng": row["platform"],
+            "Loại": row["mission_type"],
+            "Bài gửi": int(row["submissions"] or 0),
+            "Bài hợp lệ": int(row["valid_posts"] or 0),
+            "Điểm đã cộng": int(row["points_awarded"] or 0),
+            "Credit đã cấp": int(row["credit_awarded"] or 0),
+        })
+    trend_rows = ctx["trend"]
+
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        pd.DataFrame(summary_rows).to_excel(writer, index=False, sheet_name="TongQuanKPI")
+        pd.DataFrame(top_rows).to_excel(writer, index=False, sheet_name="TopNguoiDung")
+        pd.DataFrame(group_rows).to_excel(writer, index=False, sheet_name="TheoNhom")
+        pd.DataFrame(mission_rows).to_excel(writer, index=False, sheet_name="NhiemVu")
+        pd.DataFrame(trend_rows).to_excel(writer, index=False, sheet_name="XuHuong6Thang")
+    output.seek(0)
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name=f"kpi_tong_quan_npoil_{month}.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
