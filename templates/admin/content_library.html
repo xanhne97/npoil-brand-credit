@@ -1,0 +1,61 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="row g-3">
+  <div class="col-lg-4">
+    <div class="card app-card">
+      <div class="card-body p-4">
+        <h3>Thêm nội dung chính thức</h3>
+        <p class="small-muted">Admin đưa bài/caption chuẩn vào kho để người tham gia copy và làm nhiệm vụ.</p>
+        <form method="post">
+          <div class="mb-3"><label class="form-label">Tiêu đề nội dung</label><input class="form-control" name="title" required placeholder="VD: Chia sẻ bài ra mắt Marine Core X"></div>
+          <div class="row">
+            <div class="col-md-6 mb-3"><label class="form-label">Nền tảng</label><select class="form-select" name="platform"><option value="facebook">Facebook</option><option value="tiktok">TikTok</option><option value="both">Facebook & TikTok</option></select></div>
+            <div class="col-md-6 mb-3"><label class="form-label">Loại</label><select class="form-select" name="content_type"><option value="official_share">Chia sẻ bài chính thức</option><option value="self_post">Tự đăng theo nội dung mẫu</option><option value="video">Video/Reels/TikTok</option></select></div>
+          </div>
+          <div class="mb-3"><label class="form-label">Link bài chính thức</label><input class="form-control" name="official_post_url" placeholder="https://facebook.com/... hoặc https://tiktok.com/..."></div>
+          <div class="mb-3"><label class="form-label">Caption gợi ý</label><textarea class="form-control" name="suggested_caption" rows="5" placeholder="Nội dung người tham gia có thể copy. Không cần nhập hashtag/mã nếu đã có trường bên dưới."></textarea></div>
+          <div class="mb-3"><label class="form-label">Mã nhiệm vụ</label><input class="form-control" name="mission_code" required placeholder="NPOIL-T7-001"></div>
+          <div class="mb-3"><label class="form-label">Hashtag bắt buộc</label><textarea class="form-control" name="required_hashtags" rows="2">{{ default_hashtags }}</textarea></div>
+          <div class="row">
+            <div class="col-md-6 mb-3"><label class="form-label">Điểm</label><input type="number" class="form-control" name="points_reward" value="10"></div>
+            <div class="col-md-6 mb-3"><label class="form-label">Credit</label><input type="number" class="form-control" name="credit_reward" value="5"></div>
+            <div class="col-md-6 mb-3"><label class="form-label">Giới hạn/ngày</label><input type="number" class="form-control" name="max_per_day" value="2"></div>
+            <div class="col-md-6 mb-3"><label class="form-label">Trạng thái</label><select class="form-select" name="status"><option value="active">Đang bật</option><option value="inactive">Tạm tắt</option></select></div>
+            <div class="col-md-6 mb-3"><label class="form-label">Ngày bắt đầu</label><input type="date" class="form-control" name="start_date"></div>
+            <div class="col-md-6 mb-3"><label class="form-label">Ngày kết thúc</label><input type="date" class="form-control" name="end_date" value="2026-12-31"></div>
+          </div>
+          <div class="form-check mb-3"><input class="form-check-input" type="checkbox" name="create_mission" checked><label class="form-check-label">Tạo nhiệm vụ tương ứng ngay</label></div>
+          <button class="btn btn-warning w-100">Lưu nội dung</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-8">
+    <div class="card app-card">
+      <div class="card-header bg-white d-flex justify-content-between align-items-center"><strong>Kho nội dung đã tạo</strong><a class="btn btn-sm btn-outline-success" href="{{ url_for('content_library') }}" target="_blank">Xem trang người dùng</a></div>
+      <div class="card-body p-0 table-responsive">
+        <table class="table table-hover mb-0 align-middle">
+          <thead><tr><th>Nội dung</th><th>Mã/Hashtag</th><th>Điểm/Credit</th><th>Nhiệm vụ</th><th>Trạng thái</th><th></th></tr></thead>
+          <tbody>
+          {% for c in contents %}
+            <tr>
+              <td style="min-width:240px"><strong>{{ c.title }}</strong><br><small>{{ c.platform }} · {{ c.content_type }}</small>{% if c.official_post_url %}<br><a class="small" href="{{ c.official_post_url }}" target="_blank">Mở bài gốc</a>{% endif %}</td>
+              <td><code>{{ c.mission_code }}</code><br><small>{{ c.required_hashtags }}</small></td>
+              <td>{{ c.points_reward }} / {{ c.credit_reward }}</td>
+              <td>{% if c.mission_id %}<span class="badge text-bg-success">#{{ c.mission_id }} · {{ c.mission_status }}</span>{% else %}<span class="badge text-bg-secondary">Chưa tạo</span>{% endif %}</td>
+              <td><span class="badge {% if c.status=='active' %}text-bg-success{% else %}text-bg-secondary{% endif %}">{{ c.status }}</span></td>
+              <td>
+                <div class="d-flex flex-column gap-1">
+                  <form method="post" action="{{ url_for('admin_toggle_content', content_id=c.id) }}"><button class="btn btn-sm btn-light w-100">Bật/tắt</button></form>
+                  {% if not c.mission_id %}<form method="post" action="{{ url_for('admin_content_create_mission', content_id=c.id) }}"><button class="btn btn-sm btn-outline-warning w-100">Tạo nhiệm vụ</button></form>{% endif %}
+                </div>
+              </td>
+            </tr>
+          {% else %}<tr><td colspan="6" class="text-center py-4 text-muted">Chưa có nội dung.</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

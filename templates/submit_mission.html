@@ -12,14 +12,23 @@
           Điểm cơ bản: <strong>{{ mission.points_reward }}</strong> · Credit cơ bản: <strong>{{ mission.credit_reward }}</strong>
         </div>
         <form method="post" enctype="multipart/form-data">
+          {% if official_content %}
+          <div class="alert alert-success border-0">
+            <strong>Đang gửi bài từ kho nội dung:</strong> {{ official_content.title }}<br>
+            {% if official_content.official_post_url %}<a href="{{ official_content.official_post_url }}" target="_blank">Mở bài gốc công ty</a>{% endif %}
+          </div>
+          {% endif %}
           <div class="mb-3">
-            <label class="form-label">Link bài Facebook/TikTok *</label>
-            <input class="form-control" name="post_url" required placeholder="Dán link bài đăng/share/video">
-            <div class="form-text">Nên để bài ở chế độ công khai để hệ thống dễ kiểm tra.</div>
+            <label class="form-label">Link bài Facebook/TikTok của bạn *</label>
+            <input class="form-control" name="post_url" required placeholder="Dán link bài bạn đã đăng/share/video">
+            <div class="form-text">Đây là link bài của người tham gia sau khi đã đăng/share, không phải link bài gốc công ty.</div>
           </div>
           <div class="mb-3">
             <label class="form-label">Nội dung/caption bài đăng *</label>
-            <textarea class="form-control" name="content_text" rows="5" required placeholder="Dán nội dung bài đăng. Cần có mã nhiệm vụ và hashtag bắt buộc."></textarea>
+            <textarea class="form-control" name="content_text" rows="6" required placeholder="Dán nội dung bài đăng. Cần có mã nhiệm vụ và hashtag bắt buộc.">{% if official_content %}{{ official_content.suggested_caption }}
+
+Mã nhiệm vụ: {{ official_content.mission_code }}
+{{ official_content.required_hashtags }}{% endif %}</textarea>
           </div>
           <div class="mb-3">
             <label class="form-label">Ảnh/file minh chứng</label>

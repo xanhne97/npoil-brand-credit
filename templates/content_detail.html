@@ -1,0 +1,23 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8">
+    <div class="card app-card">
+      <div class="card-body p-4">
+        <h3>{{ content.title }}</h3>
+        <p class="small-muted">Sao chép caption chuẩn để đăng/share nội dung chính thức.</p>
+        <textarea id="caption-detail" class="form-control" rows="8" readonly>{{ content.suggested_caption }}
+
+Mã nhiệm vụ: {{ content.mission_code }}
+{{ content.required_hashtags }}</textarea>
+        <div class="d-flex flex-wrap gap-2 mt-3">
+          <button type="button" class="btn btn-warning" data-copy-target="#caption-detail"><i class="bi bi-clipboard-check me-1"></i>Copy caption</button>
+          {% if content.official_post_url %}<a class="btn btn-outline-success" href="{{ content.official_post_url }}" target="_blank">Mở bài gốc</a>{% endif %}
+          {% if content.mission_id and content.mission_status == 'active' %}<a class="btn btn-success" href="{{ url_for('submit_mission', mission_id=content.mission_id, content_id=content.id) }}">Gửi bài hoàn thành</a>{% endif %}
+          <a class="btn btn-light" href="{{ url_for('content_library') }}">Quay lại</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

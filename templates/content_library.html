@@ -1,0 +1,59 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+  <div>
+    <h2 class="mb-0">Kho nội dung chính thức</h2>
+    <div class="small-muted">Lấy nội dung từ công ty, sao chép caption chuẩn và gửi bài hoàn thành nhiệm vụ nhanh hơn.</div>
+  </div>
+  <form class="d-flex gap-2" method="get">
+    <select class="form-select" name="platform" onchange="this.form.submit()">
+      <option value="all" {% if platform=='all' %}selected{% endif %}>Tất cả nền tảng</option>
+      <option value="facebook" {% if platform=='facebook' %}selected{% endif %}>Facebook</option>
+      <option value="tiktok" {% if platform=='tiktok' %}selected{% endif %}>TikTok</option>
+      <option value="both" {% if platform=='both' %}selected{% endif %}>Facebook & TikTok</option>
+    </select>
+  </form>
+</div>
+
+<div class="alert alert-info border-0 app-card">
+  <strong>Cách làm:</strong> bấm copy caption → mở bài gốc để share/đăng lại → giữ nguyên mã nhiệm vụ + hashtag → gửi link bài đã đăng để hệ thống kiểm tra tự động.
+</div>
+
+<div class="row g-3">
+{% for c in contents %}
+  <div class="col-lg-6">
+    <div class="card app-card h-100">
+      <div class="card-body p-4">
+        <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+          <h5 class="mb-0">{{ c.title }}</h5>
+          <span class="badge text-bg-warning">{{ c.points_reward }} điểm · {{ c.credit_reward }} credit</span>
+        </div>
+        <div class="mb-2">
+          <span class="badge badge-soft">{{ c.platform }}</span>
+          <span class="badge badge-soft">{{ c.content_type }}</span>
+          {% if c.mission_status %}<span class="badge text-bg-success">Có nhiệm vụ</span>{% endif %}
+        </div>
+        <div class="small mb-1"><strong>Mã nhiệm vụ:</strong> <code>{{ c.mission_code }}</code></div>
+        <div class="small mb-3"><strong>Hashtag:</strong> <code>{{ c.required_hashtags }}</code></div>
+        <label class="form-label small">Caption gợi ý</label>
+        <textarea id="caption-{{ c.id }}" class="form-control" rows="6" readonly>{{ c.suggested_caption }}
+
+Mã nhiệm vụ: {{ c.mission_code }}
+{{ c.required_hashtags }}</textarea>
+      </div>
+      <div class="card-footer bg-white d-flex flex-wrap gap-2">
+        <button type="button" class="btn btn-warning" data-copy-target="#caption-{{ c.id }}"><i class="bi bi-clipboard-check me-1"></i>Copy caption</button>
+        {% if c.official_post_url %}<a class="btn btn-outline-success" href="{{ c.official_post_url }}" target="_blank"><i class="bi bi-box-arrow-up-right me-1"></i>Mở bài gốc</a>{% endif %}
+        {% if c.mission_id and c.mission_status == 'active' %}
+          <a class="btn btn-success" href="{{ url_for('submit_mission', mission_id=c.mission_id, content_id=c.id) }}"><i class="bi bi-send-check me-1"></i>Gửi bài</a>
+        {% else %}
+          <span class="btn btn-light disabled">Chưa liên kết nhiệm vụ</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+{% else %}
+  <div class="col-12"><div class="alert alert-info">Chưa có nội dung chính thức đang mở.</div></div>
+{% endfor %}
+</div>
+{% endblock %}

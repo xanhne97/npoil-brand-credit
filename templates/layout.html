@@ -68,6 +68,7 @@ a:hover{color:var(--npoil-orange)}
 {% set nav_items = [
   ('dashboard','Tổng quan','bi-grid-1x2-fill'),
   ('missions','Nhiệm vụ','bi-megaphone-fill'),
+  ('content_library','Kho nội dung','bi-collection-play-fill'),
   ('my_submissions','Bài đã gửi','bi-send-check-fill'),
   ('wallet','Điểm/Credit','bi-wallet2'),
   ('search','Tìm khách hàng','bi-search-heart-fill'),
@@ -79,6 +80,7 @@ a:hover{color:var(--npoil-orange)}
   ('admin_dashboard','Admin dashboard','bi-speedometer2'),
   ('admin_users','Người dùng','bi-people-fill'),
   ('admin_missions','Nhiệm vụ','bi-list-task'),
+  ('admin_content_library','Kho nội dung','bi-journal-richtext'),
   ('admin_scoring','Cấu hình điểm','bi-sliders'),
   ('admin_automation','Tự động hóa','bi-robot'),
   ('admin_prizes','Quản lý giải thưởng','bi-award-fill'),
@@ -170,6 +172,24 @@ a:hover{color:var(--npoil-orange)}
   var btn=document.querySelector('[data-bs-target="#topnav"]');
   var nav=document.getElementById('topnav');
   if(btn && nav){btn.addEventListener('click',function(){nav.classList.toggle('show');});}
+})();
+
+(function(){
+  document.querySelectorAll('[data-copy-target]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var sel = btn.getAttribute('data-copy-target');
+      var el = document.querySelector(sel);
+      if(!el) return;
+      var text = el.value || el.innerText || el.textContent || '';
+      navigator.clipboard.writeText(text).then(function(){
+        var old = btn.innerHTML;
+        btn.innerHTML = '<i class="bi bi-check2-circle me-1"></i>Đã copy';
+        setTimeout(function(){ btn.innerHTML = old; }, 1600);
+      }).catch(function(){
+        if(el.select) { el.select(); document.execCommand('copy'); }
+      });
+    });
+  });
 })();
 </script>
 </body>

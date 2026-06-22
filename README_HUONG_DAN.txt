@@ -106,3 +106,21 @@ Admin có thể bấm "Chạy quét tự động" để hệ thống quét lại
 
 Lưu ý:
 Giai đoạn này chưa tự lấy like/share/follow từ Facebook/TikTok. Khi tích hợp API/OCR ở bản sau, các chỉ số này mới được bật lại.
+
+==============================
+V9 - KHO NỘI DUNG CHÍNH THỨC
+==============================
+Bản V9 bổ sung module kho nội dung chính thức của công ty.
+
+Trang người dùng:
+- /content-library: Xem kho nội dung, copy caption chuẩn, mở bài gốc, gửi bài hoàn thành nhiệm vụ.
+- Khi gửi bài từ kho nội dung, caption sẽ được điền sẵn gồm nội dung mẫu, mã nhiệm vụ và hashtag.
+
+Trang admin:
+- /admin/content-library: Thêm nội dung chính thức, link bài gốc, caption mẫu, mã nhiệm vụ, hashtag, điểm và credit.
+- Admin có thể chọn tạo nhiệm vụ tương ứng ngay khi thêm nội dung.
+- Nếu chưa tạo nhiệm vụ, admin có thể bấm "Tạo nhiệm vụ" từ nội dung đó.
+
+Lưu ý deploy:
+- Phải upload đủ thư mục templates/ và static/ lên GitHub.
+- Không upload venv/, .env, __pycache__/ và file .db.

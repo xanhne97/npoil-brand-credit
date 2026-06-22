@@ -772,6 +772,27 @@ def init_db():
                 created_at TEXT NOT NULL
             );
             
+
+            CREATE TABLE IF NOT EXISTS official_contents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                platform TEXT NOT NULL DEFAULT 'facebook',
+                content_type TEXT NOT NULL DEFAULT 'official_share',
+                official_post_url TEXT,
+                suggested_caption TEXT,
+                mission_code TEXT,
+                required_hashtags TEXT,
+                points_reward INTEGER NOT NULL DEFAULT 10,
+                credit_reward INTEGER NOT NULL DEFAULT 5,
+                max_per_day INTEGER NOT NULL DEFAULT 2,
+                start_date TEXT,
+                end_date TEXT,
+                mission_id INTEGER,
+                status TEXT NOT NULL DEFAULT 'active',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(mission_id) REFERENCES missions(id)
+            );
+            
             CREATE TABLE IF NOT EXISTS app_settings (
                 setting_key TEXT PRIMARY KEY,
                 setting_value TEXT NOT NULL,
@@ -919,6 +940,26 @@ def init_db():
                 created_at TEXT NOT NULL
             );
             
+
+            CREATE TABLE IF NOT EXISTS official_contents (
+                id SERIAL PRIMARY KEY,
+                title TEXT NOT NULL,
+                platform TEXT NOT NULL DEFAULT 'facebook',
+                content_type TEXT NOT NULL DEFAULT 'official_share',
+                official_post_url TEXT,
+                suggested_caption TEXT,
+                mission_code TEXT,
+                required_hashtags TEXT,
+                points_reward INTEGER NOT NULL DEFAULT 10,
+                credit_reward INTEGER NOT NULL DEFAULT 5,
+                max_per_day INTEGER NOT NULL DEFAULT 2,
+                start_date TEXT,
+                end_date TEXT,
+                mission_id INTEGER REFERENCES missions(id),
+                status TEXT NOT NULL DEFAULT 'active',
+                created_at TEXT NOT NULL
+            );
+            
             CREATE TABLE IF NOT EXISTS app_settings (
                 setting_key TEXT PRIMARY KEY,
                 setting_value TEXT NOT NULL,
@@ -1023,6 +1064,43 @@ def init_db():
                     now_text(),
                 ),
             )
+
+
+def create_mission_from_content(conn, content_row, auto_approve=1, status="active"):
+    """Create a mission from one official content item and return mission id."""
+    title = content_row["title"]
+    description = "Chia sẻ/đăng lại nội dung chính thức từ kho nội dung công ty. Vui lòng giữ mã nhiệm vụ và hashtag bắt buộc trong caption."
+    insert_sql = """
+        INSERT INTO missions
+        (title, description, platform, mission_type, official_post_url, mission_code,
+         required_hashtags, points_reward, credit_reward, max_extra_points, max_per_day,
+         start_date, end_date, auto_approve, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """
+    if USE_POSTGRES:
+        insert_sql += " RETURNING id"
+    cur = conn.execute(
+        insert_sql,
+        (
+            title,
+            description,
+            content_row["platform"] or "both",
+            content_row["content_type"] or "official_share",
+            normalize_url(content_row["official_post_url"] or ""),
+            content_row["mission_code"] or "",
+            content_row["required_hashtags"] or REQUIRED_HASHTAGS_DEFAULT,
+            int(content_row["points_reward"] or 10),
+            int(content_row["credit_reward"] or 5),
+            100,
+            int(content_row["max_per_day"] or 2),
+            content_row["start_date"] or today_text(),
+            content_row["end_date"] or "2026-12-31",
+            int(auto_approve),
+            status,
+            now_text(),
+        ),
+    )
+    return get_inserted_id(cur)
 
 def add_credit(conn, user_id, amount, tx_type, reason):
     user = conn.execute("SELECT credit_balance FROM users WHERE id=?", (user_id,)).fetchone()
@@ -1315,6 +1393,49 @@ def dashboard():
     )
 
 
+
+@app.route("/content-library")
+@login_required
+def content_library():
+    """Kho nội dung chính thức để người tham gia lấy caption, mở bài gốc và gửi nhiệm vụ."""
+    today = today_text()
+    platform = request.args.get("platform", "all").strip()
+    params = [today, today]
+    where = "c.status='active' AND (c.start_date IS NULL OR c.start_date='' OR c.start_date<=?) AND (c.end_date IS NULL OR c.end_date='' OR c.end_date>=?)"
+    if platform in ("facebook", "tiktok", "both"):
+        where += " AND c.platform=?"
+        params.append(platform)
+    with db() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT c.*, m.status AS mission_status, m.title AS mission_title
+            FROM official_contents c
+            LEFT JOIN missions m ON m.id=c.mission_id
+            WHERE {where}
+            ORDER BY c.id DESC
+            """,
+            tuple(params),
+        ).fetchall()
+    return render_template("content_library.html", contents=rows, platform=platform)
+
+
+@app.route("/content-library/<int:content_id>/copy")
+@login_required
+def content_library_detail(content_id):
+    with db() as conn:
+        content = conn.execute(
+            """
+            SELECT c.*, m.status AS mission_status, m.title AS mission_title
+            FROM official_contents c
+            LEFT JOIN missions m ON m.id=c.mission_id
+            WHERE c.id=?
+            """,
+            (content_id,),
+        ).fetchone()
+    if not content:
+        abort(404)
+    return render_template("content_detail.html", content=content)
+
 @app.route("/missions")
 @login_required
 def missions():
@@ -1334,12 +1455,18 @@ def submit_mission(mission_id):
     if not mission:
         abort(404)
 
+    content_id = request.args.get("content_id", "").strip()
+    official_content = None
+    if content_id.isdigit():
+        with db() as conn:
+            official_content = conn.execute("SELECT * FROM official_contents WHERE id=?", (int(content_id),)).fetchone()
+
     if request.method == "POST":
         post_url = normalize_url(request.form.get("post_url", ""))
         content_text = request.form.get("content_text", "").strip()
         if not post_url or not content_text:
             flash("Vui lòng nhập link bài và nội dung/caption có mã nhiệm vụ + hashtag.", "danger")
-            return render_template("submit_mission.html", mission=mission)
+            return render_template("submit_mission.html", mission=mission, official_content=official_content)
 
         form_values = {
             "like_count": int_form("like_count"),
@@ -1356,7 +1483,7 @@ def submit_mission(mission_id):
             proof_file = save_upload(request.files.get("proof_file"))
         except ValueError as exc:
             flash(str(exc), "danger")
-            return render_template("submit_mission.html", mission=mission)
+            return render_template("submit_mission.html", mission=mission, official_content=official_content)
 
         with db() as conn:
             mission = conn.execute("SELECT * FROM missions WHERE id=?", (mission_id,)).fetchone()
@@ -1398,7 +1525,7 @@ def submit_mission(mission_id):
                 flash("Bài đã được ghi nhận và chuyển vào danh sách cần kiểm tra.", "warning")
         return redirect(url_for("my_submissions"))
 
-    return render_template("submit_mission.html", mission=mission)
+    return render_template("submit_mission.html", mission=mission, official_content=official_content)
 
 
 @app.route("/my-submissions")
@@ -1828,6 +1955,7 @@ def admin_dashboard():
         stats = {
             "users": conn.execute("SELECT COUNT(*) AS c FROM users WHERE is_admin=0").fetchone()["c"],
             "missions": conn.execute("SELECT COUNT(*) AS c FROM missions").fetchone()["c"],
+            "contents": conn.execute("SELECT COUNT(*) AS c FROM official_contents").fetchone()["c"],
             "pending": conn.execute("SELECT COUNT(*) AS c FROM submissions WHERE status IN ('pending','need_review')").fetchone()["c"],
             "searches": conn.execute("SELECT COUNT(*) AS c FROM search_logs").fetchone()["c"],
         }
@@ -1869,6 +1997,102 @@ def admin_adjust_credit(user_id):
         flash(str(exc), "danger")
     return redirect(url_for("admin_users"))
 
+
+
+@app.route("/admin/content-library", methods=["GET", "POST"])
+@login_required
+@admin_required
+def admin_content_library():
+    if request.method == "POST":
+        title = request.form.get("title", "").strip()
+        if not title:
+            flash("Vui lòng nhập tiêu đề nội dung.", "danger")
+            return redirect(url_for("admin_content_library"))
+        with db() as conn:
+            content_insert = """
+                INSERT INTO official_contents
+                (title, platform, content_type, official_post_url, suggested_caption, mission_code,
+                 required_hashtags, points_reward, credit_reward, max_per_day, start_date, end_date,
+                 mission_id, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """
+            if USE_POSTGRES:
+                content_insert += " RETURNING id"
+            mission_id = None
+            temp_row = {
+                "title": title,
+                "platform": request.form.get("platform", "facebook"),
+                "content_type": request.form.get("content_type", "official_share"),
+                "official_post_url": normalize_url(request.form.get("official_post_url", "")),
+                "suggested_caption": request.form.get("suggested_caption", "").strip(),
+                "mission_code": request.form.get("mission_code", "").strip(),
+                "required_hashtags": request.form.get("required_hashtags", REQUIRED_HASHTAGS_DEFAULT).strip(),
+                "points_reward": int_form("points_reward", 10),
+                "credit_reward": int_form("credit_reward", 5),
+                "max_per_day": int_form("max_per_day", 2),
+                "start_date": request.form.get("start_date", today_text()),
+                "end_date": request.form.get("end_date", "2026-12-31"),
+            }
+            if request.form.get("create_mission") == "on":
+                mission_id = create_mission_from_content(conn, temp_row, auto_approve=1, status="active")
+            cur = conn.execute(
+                content_insert,
+                (
+                    temp_row["title"], temp_row["platform"], temp_row["content_type"], temp_row["official_post_url"],
+                    temp_row["suggested_caption"], temp_row["mission_code"], temp_row["required_hashtags"],
+                    temp_row["points_reward"], temp_row["credit_reward"], temp_row["max_per_day"],
+                    temp_row["start_date"], temp_row["end_date"], mission_id,
+                    request.form.get("status", "active"), now_text(),
+                ),
+            )
+            content_id = get_inserted_id(cur)
+        if mission_id:
+            flash("Đã thêm nội dung chính thức và tạo nhiệm vụ tương ứng.", "success")
+        else:
+            flash("Đã thêm nội dung chính thức.", "success")
+        return redirect(url_for("admin_content_library"))
+
+    with db() as conn:
+        rows = conn.execute(
+            """
+            SELECT c.*, m.title AS mission_title, m.status AS mission_status
+            FROM official_contents c
+            LEFT JOIN missions m ON m.id=c.mission_id
+            ORDER BY c.id DESC
+            """
+        ).fetchall()
+    return render_template("admin/content_library.html", contents=rows, default_hashtags=REQUIRED_HASHTAGS_DEFAULT)
+
+
+@app.route("/admin/content-library/<int:content_id>/toggle", methods=["POST"])
+@login_required
+@admin_required
+def admin_toggle_content(content_id):
+    with db() as conn:
+        content = conn.execute("SELECT * FROM official_contents WHERE id=?", (content_id,)).fetchone()
+        if not content:
+            abort(404)
+        new_status = "inactive" if content["status"] == "active" else "active"
+        conn.execute("UPDATE official_contents SET status=? WHERE id=?", (new_status, content_id))
+    flash("Đã cập nhật trạng thái nội dung.", "success")
+    return redirect(url_for("admin_content_library"))
+
+
+@app.route("/admin/content-library/<int:content_id>/create-mission", methods=["POST"])
+@login_required
+@admin_required
+def admin_content_create_mission(content_id):
+    with db() as conn:
+        content = conn.execute("SELECT * FROM official_contents WHERE id=?", (content_id,)).fetchone()
+        if not content:
+            abort(404)
+        if content["mission_id"]:
+            flash("Nội dung này đã liên kết với nhiệm vụ rồi.", "warning")
+            return redirect(url_for("admin_content_library"))
+        mission_id = create_mission_from_content(conn, content, auto_approve=1, status="active")
+        conn.execute("UPDATE official_contents SET mission_id=? WHERE id=?", (mission_id, content_id))
+    flash("Đã tạo nhiệm vụ từ nội dung chính thức.", "success")
+    return redirect(url_for("admin_content_library"))
 
 @app.route("/admin/missions", methods=["GET", "POST"])
 @login_required
