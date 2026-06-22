@@ -17,7 +17,7 @@
 <div class="card app-card">
   <div class="card-body p-0 table-responsive">
     <table class="table table-hover mb-0">
-      <thead><tr><th>Người gửi</th><th>Nhiệm vụ</th><th>Link/Minh chứng</th><th>Chỉ số</th><th>Trạng thái/Ghi chú</th><th>Duyệt/Từ chối</th></tr></thead>
+      <thead><tr><th>Người gửi</th><th>Nhiệm vụ</th><th>Link/Minh chứng</th><th>Trạng thái/Ghi chú</th><th>Duyệt/Từ chối</th></tr></thead>
       <tbody>
       {% for s in submissions %}
       <tr>
@@ -26,10 +26,6 @@
         <td>
           <a href="{{ s.post_url }}" target="_blank">Mở bài</a>
           {% if s.proof_file %}<br><a href="{{ url_for('static', filename=s.proof_file) }}" target="_blank">Mở minh chứng</a>{% endif %}
-        </td>
-        <td class="small">
-          Like: {{ s.like_count }} · Comment: {{ s.comment_count }} · Share: {{ s.share_count }} · View: {{ s.view_count }}<br>
-          Follow: {{ s.follower_before }} → {{ s.follower_after }} · Bạn bè: {{ s.friends_before }} → {{ s.friends_after }}
         </td>
         <td class="small">
           <span class="badge {% if s.status in ['approved','auto_approved'] %}text-bg-success{% elif s.status=='rejected' %}text-bg-danger{% elif s.status=='need_more_proof' %}text-bg-warning{% else %}text-bg-secondary{% endif %}">{{ s.status }}</span><br>
@@ -59,7 +55,7 @@
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="6" class="text-center py-4 text-muted">Không có bài trong nhóm này.</td></tr>
+      <tr><td colspan="5" class="text-center py-4 text-muted">Không có bài trong nhóm này.</td></tr>
       {% endfor %}
       </tbody>
     </table>

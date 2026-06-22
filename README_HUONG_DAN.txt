@@ -76,3 +76,9 @@ Bảng xếp hạng mới:
 
 Báo cáo Excel mới:
 /admin/reports
+
+
+--- V7 - TẮT NHẬP TAY CHỈ SỐ TƯƠNG TÁC/FOLLOW ---
+Bản V7 bỏ phần người dùng tự nhập like/share/view/follow/bạn bè vì không khả thi và khó kiểm soát.
+Hệ thống mặc định xếp hạng theo nhiệm vụ hợp lệ 80% và tuân thủ bài chính thức/trọng điểm 20%.
+Các cột like/share/view/follow vẫn được giữ trong database để giai đoạn sau tích hợp API/OCR tự động lấy chỉ số, nhưng không hiển thị trên form người dùng và không tham gia điểm mặc định.

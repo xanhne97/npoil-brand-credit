@@ -49,21 +49,21 @@ DEFAULT_SETTINGS = {
     "export_excel_credit": {"value": "10", "label": "Credit trừ khi xuất Excel"},
 
     # Công thức cộng điểm/credit khi duyệt từng bài gửi mới
-    "like_points_divisor": {"value": "5", "label": "Bao nhiêu like/reaction được cộng 1 điểm cho bài gửi"},
-    "comment_points": {"value": "1", "label": "Điểm cộng cho mỗi comment hợp lệ trên bài gửi"},
-    "share_points": {"value": "2", "label": "Điểm cộng cho mỗi lượt share lại trên bài gửi"},
-    "view_step": {"value": "500", "label": "Mốc view để cộng điểm cho bài gửi"},
-    "view_step_points": {"value": "5", "label": "Điểm cộng cho mỗi mốc view của bài gửi"},
-    "follower_points": {"value": "1", "label": "Điểm cộng cho mỗi follow TikTok tăng khi duyệt bài"},
-    "friends_points_divisor": {"value": "2", "label": "Bao nhiêu bạn bè Facebook tăng được cộng 1 điểm khi duyệt bài"},
-    "extra_credit_divisor": {"value": "5", "label": "Bao nhiêu điểm cộng thêm được quy đổi 1 credit"},
+    "like_points_divisor": {"value": "999999", "label": "DỰ PHÒNG AUTO: Bao nhiêu like/reaction được cộng 1 điểm khi hệ thống tự lấy chỉ số"},
+    "comment_points": {"value": "0", "label": "DỰ PHÒNG AUTO: Điểm cộng cho mỗi comment khi hệ thống tự lấy chỉ số"},
+    "share_points": {"value": "0", "label": "DỰ PHÒNG AUTO: Điểm cộng cho mỗi lượt share lại khi hệ thống tự lấy chỉ số"},
+    "view_step": {"value": "999999", "label": "DỰ PHÒNG AUTO: Mốc view để cộng điểm khi hệ thống tự lấy chỉ số"},
+    "view_step_points": {"value": "0", "label": "DỰ PHÒNG AUTO: Điểm cộng cho mỗi mốc view khi hệ thống tự lấy chỉ số"},
+    "follower_points": {"value": "0", "label": "DỰ PHÒNG AUTO: Điểm cộng cho mỗi follow TikTok tăng khi hệ thống tự lấy chỉ số"},
+    "friends_points_divisor": {"value": "999999", "label": "DỰ PHÒNG AUTO: Bao nhiêu bạn bè Facebook tăng được cộng 1 điểm khi hệ thống tự lấy chỉ số"},
+    "extra_credit_divisor": {"value": "999999", "label": "DỰ PHÒNG AUTO: Bao nhiêu điểm cộng thêm từ chỉ số tự động được quy đổi 1 credit"},
 
     # Công thức xếp hạng công bằng theo tháng, tính tương đối trong cùng nhóm lọc
-    "score_weight_tasks": {"value": "30", "label": "Tỷ trọng điểm nhiệm vụ/bài hợp lệ trong bảng xếp hạng tháng"},
-    "score_weight_interactions": {"value": "25", "label": "Tỷ trọng điểm tương tác trong bảng xếp hạng tháng"},
-    "score_weight_shares": {"value": "25", "label": "Tỷ trọng điểm lượt share trong bảng xếp hạng tháng"},
-    "score_weight_growth": {"value": "10", "label": "Tỷ trọng điểm tăng trưởng follow/bạn bè trong bảng xếp hạng tháng"},
-    "score_weight_compliance": {"value": "10", "label": "Tỷ trọng điểm tuân thủ bài chính thức/trọng điểm"},
+    "score_weight_tasks": {"value": "80", "label": "Tỷ trọng điểm nhiệm vụ/bài hợp lệ trong bảng xếp hạng tháng"},
+    "score_weight_interactions": {"value": "0", "label": "Tỷ trọng điểm tương tác tự động trong bảng xếp hạng tháng - tạm tắt"},
+    "score_weight_shares": {"value": "0", "label": "Tỷ trọng điểm lượt share lại tự động trong bảng xếp hạng tháng - tạm tắt"},
+    "score_weight_growth": {"value": "0", "label": "Tỷ trọng điểm tăng trưởng follow/bạn bè tự động - tạm tắt"},
+    "score_weight_compliance": {"value": "20", "label": "Tỷ trọng điểm tuân thủ bài chính thức/trọng điểm"},
     "min_valid_posts_for_winner": {"value": "6", "label": "Số bài/video hợp lệ tối thiểu để đủ điều kiện xét giải"},
     "leaderboard_comment_weight": {"value": "2", "label": "Hệ số comment khi tính chỉ số tương tác thô"},
     "leaderboard_view_unit": {"value": "100", "label": "Bao nhiêu view được tính là 1 đơn vị tương tác thô"},
@@ -140,6 +140,39 @@ def seed_default_settings(conn):
                 """,
                 (setting_key, meta["value"], meta["label"], now_text()),
             )
+
+    # V7: bỏ cơ chế người dùng tự nhập like/share/follow vì dễ sai và khó kiểm soát.
+    # Khi DB cũ đã có cấu hình V6, tự chuyển sang mô hình chấm theo nhiệm vụ + tuân thủ.
+    # Các chỉ số tương tác/follow vẫn giữ trong database để giai đoạn sau lấy tự động từ API/OCR.
+    flag = conn.execute(
+        "SELECT setting_key FROM app_settings WHERE setting_key=?",
+        ("system_v7_disable_manual_metrics",),
+    ).fetchone()
+    if not flag:
+        v7_values = {
+            "like_points_divisor": "999999",
+            "comment_points": "0",
+            "share_points": "0",
+            "view_step": "999999",
+            "view_step_points": "0",
+            "follower_points": "0",
+            "friends_points_divisor": "999999",
+            "extra_credit_divisor": "999999",
+            "score_weight_tasks": "80",
+            "score_weight_interactions": "0",
+            "score_weight_shares": "0",
+            "score_weight_growth": "0",
+            "score_weight_compliance": "20",
+        }
+        for key, value in v7_values.items():
+            conn.execute(
+                "UPDATE app_settings SET setting_value=?, updated_at=? WHERE setting_key=?",
+                (value, now_text(), key),
+            )
+        conn.execute(
+            "INSERT INTO app_settings (setting_key, setting_value, label, updated_at) VALUES (?, ?, ?, ?)",
+            ("system_v7_disable_manual_metrics", "1", "Đã áp dụng V7: tắt nhập tay chỉ số tương tác/follow", now_text()),
+        )
 
 
 def get_app_settings(conn):
@@ -296,9 +329,9 @@ def normalize_component(value, max_value, weight):
 def get_fair_ranking_rows(conn, month, group_type="all", unit_keyword="", limit=None, prize_eligible_only=False, include_zero=False):
     """Return monthly leaderboard rows using fair relative scoring.
 
-    The ranking keeps raw metrics for transparency but caps each scoring category by percentage:
-    tasks/posts, interactions, shares, growth, and compliance.
-    Existing followers/friends are not counted; only growth within submitted proof is used.
+    V7 default ranking focuses on verified tasks and compliance.
+    Interaction/share/growth columns are kept for future automatic fetching,
+    but user-submitted manual numbers are no longer required.
     """
     settings = get_app_settings(conn)
     where_sql, filter_params = user_filter_sql(group_type, unit_keyword)

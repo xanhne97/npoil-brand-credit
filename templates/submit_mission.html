@@ -26,16 +26,10 @@
             <input type="file" class="form-control" name="proof_file" accept=".png,.jpg,.jpeg,.webp,.pdf">
             <div class="form-text">Không bắt buộc nếu link công khai và đủ dữ liệu, nhưng nên gửi để đối soát khi cần.</div>
           </div>
-          <h5 class="mt-4">Chỉ số tương tác/follow nếu có</h5>
-          <div class="row">
-            <div class="col-md-3 mb-3"><label class="form-label">Like/Reaction</label><input type="number" min="0" class="form-control" name="like_count" value="0"></div>
-            <div class="col-md-3 mb-3"><label class="form-label">Comment</label><input type="number" min="0" class="form-control" name="comment_count" value="0"></div>
-            <div class="col-md-3 mb-3"><label class="form-label">Share lại</label><input type="number" min="0" class="form-control" name="share_count" value="0"></div>
-            <div class="col-md-3 mb-3"><label class="form-label">View video</label><input type="number" min="0" class="form-control" name="view_count" value="0"></div>
-            <div class="col-md-3 mb-3"><label class="form-label">Follow trước</label><input type="number" min="0" class="form-control" name="follower_before" value="0"></div>
-            <div class="col-md-3 mb-3"><label class="form-label">Follow sau</label><input type="number" min="0" class="form-control" name="follower_after" value="0"></div>
-            <div class="col-md-3 mb-3"><label class="form-label">Bạn bè trước</label><input type="number" min="0" class="form-control" name="friends_before" value="0"></div>
-            <div class="col-md-3 mb-3"><label class="form-label">Bạn bè sau</label><input type="number" min="0" class="form-control" name="friends_after" value="0"></div>
+          <div class="alert alert-info mt-4">
+            <strong>Không cần nhập chỉ số like/share/follow.</strong><br>
+            Giai đoạn hiện tại hệ thống chỉ ghi nhận link bài, caption, hashtag, mã nhiệm vụ và minh chứng.
+            Các chỉ số tương tác/follow sẽ chỉ dùng khi hệ thống tích hợp cơ chế lấy tự động sau này, tránh việc người dùng tự nhập gây sai lệch.
           </div>
           <button class="btn btn-warning">Gửi hệ thống kiểm tra</button>
           <a class="btn btn-light" href="{{ url_for('missions') }}">Quay lại</a>

@@ -2,14 +2,14 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
   <div>
-    <h2 class="mb-0">Bảng xếp hạng thi đua công bằng</h2>
-    <div class="small-muted">Xếp hạng theo thang 100 điểm: nhiệm vụ 30%, tương tác 25%, share 25%, tăng trưởng 10%, tuân thủ bài trọng điểm 10%.</div>
+    <h2 class="mb-0">Bảng xếp hạng thi đua</h2>
+    <div class="small-muted">V7 xếp hạng theo nhiệm vụ hợp lệ và mức độ tuân thủ bài chính thức/trọng điểm. Không dùng số liệu người dùng tự nhập.</div>
   </div>
   <a class="btn btn-outline-success" href="{{ url_for('prizes') }}">Cơ cấu giải thưởng</a>
 </div>
 
 <div class="alert alert-info">
-  <strong>Nguyên tắc công bằng:</strong> Không tính follow/bạn bè có sẵn. Hệ thống chỉ tính phần tăng thêm trong tháng và quy đổi tương đối trong cùng nhóm lọc. Nếu bằng điểm, ưu tiên lần lượt: bài hợp lệ, bài trọng điểm, tương tác thực tế, share thực tế, tăng trưởng thực tế.
+  <strong>Nguyên tắc công bằng:</strong> Không tính like/share/follow do người dùng tự nhập. Hệ thống chấm theo nhiệm vụ đã xác minh, bài hợp lệ, bài trọng điểm và mã/hashtag đúng quy định. Khi tích hợp API/OCR sau này, chỉ số tương tác sẽ được lấy tự động.
 </div>
 
 <div class="card app-card mb-3">
@@ -46,7 +46,7 @@
       <thead>
         <tr>
           <th>Hạng</th><th>Họ tên</th><th>Nhóm/Đơn vị</th><th>Điểm 100</th>
-          <th>Nhiệm vụ</th><th>Tương tác</th><th>Share</th><th>Tăng trưởng</th><th>Tuân thủ</th><th>Đủ xét giải?</th>
+          <th>Nhiệm vụ</th><th>Tuân thủ</th><th>Đủ xét giải?</th>
         </tr>
       </thead>
       <tbody>
@@ -57,14 +57,11 @@
           <td>{{ r.group_type }}<br><small>{{ r.department or r.distributor_name or r.dealer_name or '-' }}</small></td>
           <td><strong class="text-success">{{ '%.2f'|format(r.final_score) }}</strong></td>
           <td>{{ '%.2f'|format(r.score_tasks) }}</td>
-          <td>{{ '%.2f'|format(r.score_interactions) }}</td>
-          <td>{{ '%.2f'|format(r.score_shares) }}</td>
-          <td>{{ '%.2f'|format(r.score_growth) }}</td>
           <td>{{ '%.2f'|format(r.score_compliance) }}</td>
           <td>{% if r.is_prize_eligible %}<span class="badge text-bg-success">Có</span>{% else %}<span class="badge text-bg-secondary">Cần {{ r.min_valid_posts }} bài</span>{% endif %}</td>
         </tr>
       {% else %}
-        <tr><td colspan="10" class="text-center py-4 text-muted">Chưa có dữ liệu xếp hạng.</td></tr>
+        <tr><td colspan="7" class="text-center py-4 text-muted">Chưa có dữ liệu xếp hạng.</td></tr>
       {% endfor %}
       </tbody>
     </table>
@@ -72,20 +69,20 @@
 </div>
 
 <div class="card app-card">
-  <div class="card-header bg-white"><strong>Chỉ số gốc thực tế dùng để phá hòa và báo cáo</strong></div>
+  <div class="card-header bg-white"><strong>Chỉ số đối soát</strong></div>
   <div class="card-body p-0 table-responsive">
     <table class="table table-sm table-hover mb-0 align-middle">
-      <thead><tr><th>Hạng</th><th>Họ tên</th><th>Bài hợp lệ</th><th>Bài trọng điểm</th><th>Like</th><th>Comment</th><th>Share</th><th>View</th><th>Follow tăng</th><th>Bạn bè tăng</th><th>Credit</th></tr></thead>
+      <thead><tr><th>Hạng</th><th>Họ tên</th><th>Bài hợp lệ</th><th>Bài trọng điểm</th><th>Điểm nhiệm vụ gốc</th><th>Credit hiện có</th></tr></thead>
       <tbody>
       {% for r in rows %}
         <tr>
-          <td>{{ loop.index }}</td><td><strong>{{ r.name }}</strong></td><td>{{ r.valid_posts }}</td><td>{{ r.compliance_raw }}</td><td>{{ r.total_likes }}</td><td>{{ r.total_comments }}</td><td>{{ r.total_shares }}</td><td>{{ r.total_views }}</td><td>{{ r.follower_growth }}</td><td>{{ r.friends_growth }}</td><td>{{ r.credit_balance }}</td>
+          <td>{{ loop.index }}</td><td><strong>{{ r.name }}</strong></td><td>{{ r.valid_posts }}</td><td>{{ r.compliance_raw }}</td><td>{{ r.task_raw }}</td><td>{{ r.credit_balance }}</td>
         </tr>
       {% else %}
-        <tr><td colspan="11" class="text-center py-4 text-muted">Chưa có dữ liệu.</td></tr>
+        <tr><td colspan="6" class="text-center py-4 text-muted">Chưa có dữ liệu.</td></tr>
       {% endfor %}
       </tbody>
     </table>
   </div>
-</div>
+</div></div>
 {% endblock %}
