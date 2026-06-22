@@ -1,0 +1,40 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+  <div>
+    <h2 class="mb-0"><i class="bi bi-stars text-brand me-2"></i>Vinh danh người thắng giải</h2>
+    <div class="small-muted">Kết quả đã được admin chốt theo tháng, cố định để báo cáo và trao thưởng.</div>
+  </div>
+  <form class="d-flex gap-2" method="get">
+    <select class="form-select" name="month" style="min-width:150px">
+      {% for m in months %}<option value="{{ m.month_key }}" {% if m.month_key==month %}selected{% endif %}>{{ m.month_key }}</option>{% endfor %}
+      {% if not months %}<option value="{{ month }}">{{ month }}</option>{% endif %}
+    </select>
+    <button class="btn btn-warning">Xem</button>
+  </form>
+</div>
+
+<div class="card app-card">
+  <div class="card-body p-0 table-responsive">
+    <table class="table table-hover mb-0">
+      <thead><tr><th>Hạng</th><th>Người thắng giải</th><th>Nhóm/Đơn vị</th><th>Điểm</th><th>Bài hợp lệ</th><th>Giải</th><th>Giá trị</th><th>Chốt lúc</th></tr></thead>
+      <tbody>
+      {% for w in rows %}
+      <tr class="winner-row">
+        <td><span class="rank-medal">{% if w.rank_no==1 %}🥇{% elif w.rank_no==2 %}🥈{% elif w.rank_no==3 %}🥉{% else %}{{ w.rank_no }}{% endif %}</span></td>
+        <td><strong>{{ w.user_name }}</strong><br><small class="text-muted">{{ w.email }}</small></td>
+        <td>{{ w.group_type }}<br><small class="text-muted">{{ w.unit_name or '-' }}</small></td>
+        <td><strong>{{ w.total_points }}</strong></td>
+        <td>{{ w.valid_posts }}</td>
+        <td><span class="badge text-bg-warning">{{ w.prize_name }}</span></td>
+        <td><strong>{{ w.prize_value|vnd }}</strong></td>
+        <td>{{ w.finalized_at }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8" class="text-center text-muted py-5">Chưa có dữ liệu chốt giải cho tháng {{ month }}.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

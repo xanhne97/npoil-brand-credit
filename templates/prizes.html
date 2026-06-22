@@ -1,65 +1,88 @@
 {% extends "layout.html" %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <div>
-    <h2 class="mb-0">Cơ cấu giải thưởng</h2>
-    <div class="small-muted">Tự xác định mức giải theo số lượng thành viên đăng ký hợp lệ.</div>
-  </div>
-  <a class="btn btn-warning" href="{{ url_for('leaderboard') }}">Xem bảng xếp hạng</a>
-</div>
-
-<div class="row g-3 mb-4">
-  <div class="col-md-4">
-    <div class="card stat-card">
-      <div class="card-body">
-        <div class="small-muted">Thành viên đăng ký hợp lệ hiện tại</div>
-        <h3>{{ participant_count }}</h3>
+<div class="card hero-card mb-4">
+  <div class="card-body p-4 p-lg-5">
+    <div class="row align-items-center g-4">
+      <div class="col-lg-8">
+        <div class="hero-label mb-3"><i class="bi bi-gift-fill"></i> Cơ cấu giải thưởng</div>
+        <h1 class="hero-title mb-3">Giải thưởng minh bạch, tự động theo số lượng người tham gia.</h1>
+        <p class="hero-muted fs-5 mb-0">Admin có thể chỉnh mốc giải trong trang quản trị. Hệ thống tự xác định mốc đang áp dụng và hỗ trợ chốt giải theo tháng.</p>
+      </div>
+      <div class="col-lg-4">
+        <div class="glass-box">
+          <div class="small">Thành viên đăng ký hợp lệ</div>
+          <div class="display-5 fw-black">{{ participant_count }}</div>
+          {% if current_tier %}<div class="hero-muted small">Mốc hiện tại: {{ current_tier.title }}</div>{% endif %}
+        </div>
       </div>
     </div>
   </div>
-  <div class="col-md-8">
-    <div class="alert alert-info mb-0">
-      Hệ thống đang tự động áp dụng mức giải theo số lượng người dùng active, không tính tài khoản admin.
-      Mức đang áp dụng được đánh dấu bằng nhãn <strong>Đang áp dụng</strong>.
-    </div>
+</div>
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+  <div>
+    <h2 class="mb-0">Bảng giải thưởng</h2>
+    <div class="small-muted">Mức đang áp dụng được đánh dấu nổi bật.</div>
+  </div>
+  <div class="d-flex flex-wrap gap-2">
+    <a class="btn btn-outline-success" href="{{ url_for('leaderboard') }}"><i class="bi bi-trophy-fill me-1"></i>Xếp hạng</a>
+    <a class="btn btn-warning" href="{{ url_for('winners') }}"><i class="bi bi-stars me-1"></i>Vinh danh</a>
   </div>
 </div>
 
 <div class="row g-3">
   {% for group in prize_groups %}
-  <div class="col-lg-4">
-    <div class="card app-card h-100 {% if group.key == current_tier %}border border-warning{% endif %}">
-      <div class="card-header bg-white d-flex justify-content-between align-items-center">
-        <strong>{{ group.condition }}</strong>
-        {% if group.key == current_tier %}
-          <span class="badge text-bg-warning">Đang áp dụng</span>
-        {% endif %}
-      </div>
-      <div class="card-body p-0 table-responsive">
-        <table class="table table-hover mb-0">
-          <thead>
-            <tr><th>Giải thưởng</th><th>Giá trị</th></tr>
-          </thead>
-          <tbody>
-            {% for prize in group.prizes %}
-            <tr>
-              <td>{{ prize.name }}</td>
-              <td><strong>{{ prize.value }}</strong></td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+  {% set tier = group['tier'] %}
+  <div class="col-xl-4 col-md-6">
+    <div class="card app-card prize-card h-100 {% if current_tier and tier.id == current_tier.id %}active-tier{% endif %}">
+      {% if current_tier and tier.id == current_tier.id %}<span class="badge text-bg-warning prize-ribbon">Đang áp dụng</span>{% endif %}
+      <div class="card-body p-4">
+        <div class="d-flex align-items-start gap-3 mb-3">
+          <span class="icon-bubble"><i class="bi bi-award-fill"></i></span>
+          <div>
+            <h5 class="mb-1">{{ tier.title }}</h5>
+            <div class="small-muted">Từ {{ tier.min_participants }}{% if tier.max_participants %} đến {{ tier.max_participants }}{% else %}+{% endif %} thành viên</div>
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table class="table mb-0">
+            <thead><tr><th>Giải</th><th>SL</th><th class="text-end">Giá trị</th></tr></thead>
+            <tbody>
+              {% for prize in group['items'] %}
+              {% if prize.active %}
+              <tr><td><strong>{{ prize.prize_name }}</strong></td><td>{{ prize.quantity }}</td><td class="text-end"><strong>{{ prize.prize_value|vnd }}</strong></td></tr>
+              {% endif %}
+              {% else %}<tr><td colspan="3" class="text-muted text-center py-3">Chưa có giải.</td></tr>{% endfor %}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>
   {% endfor %}
 </div>
 
-<div class="card app-card mt-4">
-  <div class="card-body">
-    <h5 class="mb-2">Giải đặc biệt cuối chương trình</h5>
-    <div><strong>{{ special_award.name }}</strong></div>
-    <div class="small-muted">{{ special_award.description }}</div>
+<div class="row g-3 mt-1">
+  <div class="col-lg-6">
+    <div class="card app-card h-100">
+      <div class="card-body p-4">
+        <h5 class="mb-2"><i class="bi bi-stars text-brand me-1"></i>Giải đặc biệt cuối chương trình</h5>
+        <div><strong>{{ special_award.name }}</strong></div>
+        <div class="small-muted">{{ special_award.description }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card app-card h-100">
+      <div class="card-body p-4">
+        <h5 class="mb-3"><i class="bi bi-patch-check-fill text-green me-1"></i>Kết quả vinh danh gần đây</h5>
+        {% for w in latest_winners %}
+          <div class="d-flex justify-content-between border-bottom py-2"><span><strong>{{ w.prize_name }}</strong> · {{ w.user_name }}</span><span class="small-muted">{{ w.month_key }}</span></div>
+        {% else %}
+          <div class="text-muted">Chưa có tháng nào được chốt giải.</div>
+        {% endfor %}
+      </div>
+    </div>
   </div>
 </div>
 {% endblock %}

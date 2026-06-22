@@ -145,6 +145,145 @@ def setting_int(settings, key, default=0):
         return default
 
 
+
+def seed_default_prizes(conn):
+    existing = conn.execute("SELECT COUNT(*) AS c FROM prize_tiers").fetchone()["c"]
+    if existing:
+        return
+
+    defaults = [
+        {
+            "title": "Dưới 30 thành viên đăng ký hợp lệ",
+            "min_participants": 0,
+            "max_participants": 29,
+            "note": "Áp dụng khi chương trình có dưới 30 người tham gia hợp lệ.",
+            "items": [
+                (1, "Giải Nhất", 1, 1000000),
+                (2, "Giải Nhì", 1, 750000),
+                (3, "Giải Ba", 1, 500000),
+            ],
+        },
+        {
+            "title": "Từ 30 - 50 thành viên đăng ký hợp lệ",
+            "min_participants": 30,
+            "max_participants": 50,
+            "note": "Áp dụng khi chương trình có từ 30 đến 50 người tham gia hợp lệ.",
+            "items": [
+                (1, "Giải Nhất", 1, 1500000),
+                (2, "Giải Nhì", 1, 1000000),
+                (3, "Giải Ba", 1, 750000),
+            ],
+        },
+        {
+            "title": "Trên 50 thành viên đăng ký hợp lệ",
+            "min_participants": 51,
+            "max_participants": None,
+            "note": "Áp dụng khi chương trình có trên 50 người tham gia hợp lệ.",
+            "items": [
+                (1, "Giải Nhất", 1, 2000000),
+                (2, "Giải Nhì", 1, 1500000),
+                (3, "Giải Ba", 1, 1000000),
+                (4, "Giải Khuyến khích", 1, 500000),
+            ],
+        },
+    ]
+
+    for tier in defaults:
+        insert_sql = """
+            INSERT INTO prize_tiers
+            (title, min_participants, max_participants, note, active, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """
+        if USE_POSTGRES:
+            insert_sql += " RETURNING id"
+        cur = conn.execute(
+            insert_sql,
+            (
+                tier["title"], tier["min_participants"], tier["max_participants"],
+                tier["note"], 1, now_text(),
+            ),
+        )
+        tier_id = get_inserted_id(cur)
+        for rank_order, prize_name, quantity, prize_value in tier["items"]:
+            conn.execute(
+                """
+                INSERT INTO prize_items
+                (tier_id, prize_name, quantity, prize_value, rank_order, active, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (tier_id, prize_name, quantity, prize_value, rank_order, 1, now_text()),
+            )
+
+
+def participant_count_for_prize(conn):
+    return conn.execute(
+        "SELECT COUNT(*) AS c FROM users WHERE is_admin=0 AND status='active'"
+    ).fetchone()["c"]
+
+
+def get_active_prize_tier(conn, participant_count):
+    return conn.execute(
+        """
+        SELECT * FROM prize_tiers
+        WHERE active=1
+          AND min_participants <= ?
+          AND (max_participants IS NULL OR max_participants >= ?)
+        ORDER BY min_participants DESC, id DESC
+        LIMIT 1
+        """,
+        (participant_count, participant_count),
+    ).fetchone()
+
+
+def get_prize_tiers_with_items(conn, active_only=False):
+    where = "WHERE active=1" if active_only else ""
+    tiers = conn.execute(
+        f"SELECT * FROM prize_tiers {where} ORDER BY min_participants ASC, id ASC"
+    ).fetchall()
+    result = []
+    for tier in tiers:
+        items = conn.execute(
+            """
+            SELECT * FROM prize_items
+            WHERE tier_id=?
+            ORDER BY rank_order ASC, id ASC
+            """,
+            (tier["id"],),
+        ).fetchall()
+        result.append({"tier": tier, "items": items})
+    return result
+
+
+def get_ranking_rows(conn, month, limit=None):
+    sql = """
+        SELECT u.id, u.name, u.email, u.group_type, u.department, u.distributor_name, u.dealer_name,
+               COALESCE(pt.total_points,0) AS total_points,
+               COALESCE(st.valid_posts,0) AS valid_posts,
+               u.credit_balance
+        FROM users u
+        LEFT JOIN (
+            SELECT user_id, SUM(points) AS total_points
+            FROM point_transactions
+            WHERE month_key=?
+            GROUP BY user_id
+        ) pt ON pt.user_id=u.id
+        LEFT JOIN (
+            SELECT user_id, COUNT(*) AS valid_posts
+            FROM submissions
+            WHERE status IN ('auto_approved','approved')
+              AND substr(COALESCE(approved_at, created_at),1,7)=?
+            GROUP BY user_id
+        ) st ON st.user_id=u.id
+        WHERE u.is_admin=0 AND u.status='active'
+          AND COALESCE(pt.total_points,0) > 0
+          AND COALESCE(st.valid_posts,0) > 0
+        ORDER BY total_points DESC, valid_posts DESC, u.name ASC
+    """
+    if limit:
+        sql += f" LIMIT {int(limit)}"
+    return conn.execute(sql, (month, month)).fetchall()
+
+
 def user_filter_sql(group_type, unit_keyword):
     where = ["u.is_admin=0"]
     params = []
@@ -265,6 +404,32 @@ def inject_globals():
         "year": datetime.now().year,
         "month_now": current_month(),
     }
+
+
+@app.template_filter("vnd")
+def format_vnd(value):
+    try:
+        amount = int(float(value or 0))
+    except (TypeError, ValueError):
+        amount = 0
+    return f"{amount:,}".replace(",", ".") + " VNĐ"
+
+
+def group_type_label(value):
+    return {
+        "employee": "Nhân viên",
+        "distributor": "Nhà phân phối",
+        "dealer": "Đại lý",
+    }.get(value or "", value or "-")
+
+
+def unit_name_from_row(row):
+    if not row:
+        return "-"
+    try:
+        return row["department"] or row["distributor_name"] or row["dealer_name"] or "-"
+    except Exception:
+        return "-"
 
 
 def login_required(fn):
@@ -394,6 +559,46 @@ def init_db():
                 label TEXT,
                 updated_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS prize_tiers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                min_participants INTEGER NOT NULL DEFAULT 0,
+                max_participants INTEGER,
+                note TEXT,
+                active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS prize_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tier_id INTEGER NOT NULL,
+                prize_name TEXT NOT NULL,
+                quantity INTEGER NOT NULL DEFAULT 1,
+                prize_value INTEGER NOT NULL DEFAULT 0,
+                rank_order INTEGER NOT NULL DEFAULT 1,
+                active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(tier_id) REFERENCES prize_tiers(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS monthly_winners (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                month_key TEXT NOT NULL,
+                rank_no INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                user_name TEXT NOT NULL,
+                email TEXT,
+                group_type TEXT,
+                unit_name TEXT,
+                total_points INTEGER NOT NULL DEFAULT 0,
+                valid_posts INTEGER NOT NULL DEFAULT 0,
+                prize_tier_title TEXT,
+                prize_name TEXT NOT NULL,
+                prize_value INTEGER NOT NULL DEFAULT 0,
+                finalized_at TEXT NOT NULL,
+                UNIQUE(month_key, user_id)
+            );
             """
 
     postgres_schema = """
@@ -500,11 +705,51 @@ def init_db():
                 label TEXT,
                 updated_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS prize_tiers (
+                id SERIAL PRIMARY KEY,
+                title TEXT NOT NULL,
+                min_participants INTEGER NOT NULL DEFAULT 0,
+                max_participants INTEGER,
+                note TEXT,
+                active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS prize_items (
+                id SERIAL PRIMARY KEY,
+                tier_id INTEGER NOT NULL REFERENCES prize_tiers(id),
+                prize_name TEXT NOT NULL,
+                quantity INTEGER NOT NULL DEFAULT 1,
+                prize_value INTEGER NOT NULL DEFAULT 0,
+                rank_order INTEGER NOT NULL DEFAULT 1,
+                active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS monthly_winners (
+                id SERIAL PRIMARY KEY,
+                month_key TEXT NOT NULL,
+                rank_no INTEGER NOT NULL,
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                user_name TEXT NOT NULL,
+                email TEXT,
+                group_type TEXT,
+                unit_name TEXT,
+                total_points INTEGER NOT NULL DEFAULT 0,
+                valid_posts INTEGER NOT NULL DEFAULT 0,
+                prize_tier_title TEXT,
+                prize_name TEXT NOT NULL,
+                prize_value INTEGER NOT NULL DEFAULT 0,
+                finalized_at TEXT NOT NULL,
+                UNIQUE(month_key, user_id)
+            );
             """
 
     with db() as conn:
         conn.executescript(postgres_schema if USE_POSTGRES else sqlite_schema)
         seed_default_settings(conn)
+        seed_default_prizes(conn)
 
         admin_email = os.getenv("ADMIN_EMAIL", "admin@npoil.vn").strip().lower()
         admin_password = os.getenv("ADMIN_PASSWORD", "Admin@123456")
@@ -1064,52 +1309,18 @@ def leaderboard():
 @app.route("/prizes")
 @login_required
 def prizes():
-    """Trang hiển thị cơ cấu giải thưởng theo số lượng người đăng ký hợp lệ."""
+    """Trang hiển thị cơ cấu giải thưởng động từ database."""
     with db() as conn:
-        participant_count = conn.execute(
-            "SELECT COUNT(*) AS c FROM users WHERE is_admin=0 AND status='active'"
-        ).fetchone()["c"]
-
-    prize_groups = [
-        {
-            "key": "under_30",
-            "title": "Trường hợp dưới 30 thành viên đăng ký hợp lệ",
-            "condition": "Dưới 30 người",
-            "prizes": [
-                {"name": "01 Giải Nhất", "value": "1.000.000 VNĐ"},
-                {"name": "01 Giải Nhì", "value": "750.000 VNĐ"},
-                {"name": "01 Giải Ba", "value": "500.000 VNĐ"},
-            ],
-        },
-        {
-            "key": "from_30_to_50",
-            "title": "Trường hợp từ 30 - 50 thành viên đăng ký hợp lệ",
-            "condition": "Từ 30 đến 50 người",
-            "prizes": [
-                {"name": "01 Giải Nhất", "value": "1.500.000 VNĐ"},
-                {"name": "01 Giải Nhì", "value": "1.000.000 VNĐ"},
-                {"name": "01 Giải Ba", "value": "750.000 VNĐ"},
-            ],
-        },
-        {
-            "key": "over_50",
-            "title": "Trường hợp trên 50 thành viên đăng ký hợp lệ",
-            "condition": "Trên 50 người",
-            "prizes": [
-                {"name": "01 Giải Nhất", "value": "2.000.000 VNĐ"},
-                {"name": "01 Giải Nhì", "value": "1.500.000 VNĐ"},
-                {"name": "01 Giải Ba", "value": "1.000.000 VNĐ"},
-                {"name": "01 Giải Khuyến khích", "value": "500.000 VNĐ"},
-            ],
-        },
-    ]
-
-    if participant_count < 30:
-        current_tier = "under_30"
-    elif participant_count <= 50:
-        current_tier = "from_30_to_50"
-    else:
-        current_tier = "over_50"
+        participant_count = participant_count_for_prize(conn)
+        current_tier = get_active_prize_tier(conn, participant_count)
+        prize_groups = get_prize_tiers_with_items(conn, active_only=True)
+        latest_winners = conn.execute(
+            """
+            SELECT * FROM monthly_winners
+            ORDER BY month_key DESC, rank_no ASC
+            LIMIT 5
+            """
+        ).fetchall()
 
     special_award = {
         "name": "Nhà sáng tạo nội dung tốt nhất năm",
@@ -1122,10 +1333,262 @@ def prizes():
         prize_groups=prize_groups,
         current_tier=current_tier,
         special_award=special_award,
+        latest_winners=latest_winners,
     )
 
 
+@app.route("/winners")
+@login_required
+def winners():
+    month = request.args.get("month", "").strip()
+    with db() as conn:
+        months = conn.execute(
+            "SELECT DISTINCT month_key FROM monthly_winners ORDER BY month_key DESC"
+        ).fetchall()
+        if not month and months:
+            month = months[0]["month_key"]
+        if not month:
+            month = current_month()
+        rows = conn.execute(
+            "SELECT * FROM monthly_winners WHERE month_key=? ORDER BY rank_no ASC",
+            (month,),
+        ).fetchall()
+    return render_template("winners.html", rows=rows, months=months, month=month)
+
+
 # ===================== ADMIN =====================
+@app.route("/admin/prizes", methods=["GET", "POST"])
+@login_required
+@admin_required
+def admin_prizes():
+    if request.method == "POST":
+        action = request.form.get("action", "").strip()
+        with db() as conn:
+            if action == "create_tier":
+                max_raw = request.form.get("max_participants", "").strip()
+                max_participants = int(max_raw) if max_raw else None
+                conn.execute(
+                    """
+                    INSERT INTO prize_tiers
+                    (title, min_participants, max_participants, note, active, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        request.form.get("title", "").strip(),
+                        int_form("min_participants", 0),
+                        max_participants,
+                        request.form.get("note", "").strip(),
+                        1 if request.form.get("active") == "on" else 0,
+                        now_text(),
+                    ),
+                )
+                flash("Đã thêm mốc giải thưởng.", "success")
+            elif action == "update_tier":
+                tier_id = int_form("tier_id")
+                max_raw = request.form.get("max_participants", "").strip()
+                max_participants = int(max_raw) if max_raw else None
+                conn.execute(
+                    """
+                    UPDATE prize_tiers
+                    SET title=?, min_participants=?, max_participants=?, note=?, active=?
+                    WHERE id=?
+                    """,
+                    (
+                        request.form.get("title", "").strip(),
+                        int_form("min_participants", 0),
+                        max_participants,
+                        request.form.get("note", "").strip(),
+                        1 if request.form.get("active") == "on" else 0,
+                        tier_id,
+                    ),
+                )
+                flash("Đã cập nhật mốc giải thưởng.", "success")
+            elif action == "create_item":
+                conn.execute(
+                    """
+                    INSERT INTO prize_items
+                    (tier_id, prize_name, quantity, prize_value, rank_order, active, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        int_form("tier_id"),
+                        request.form.get("prize_name", "").strip(),
+                        max(1, int_form("quantity", 1)),
+                        max(0, int_form("prize_value", 0)),
+                        max(1, int_form("rank_order", 1)),
+                        1 if request.form.get("active") == "on" else 0,
+                        now_text(),
+                    ),
+                )
+                flash("Đã thêm giải thưởng trong mốc.", "success")
+            elif action == "update_item":
+                conn.execute(
+                    """
+                    UPDATE prize_items
+                    SET prize_name=?, quantity=?, prize_value=?, rank_order=?, active=?
+                    WHERE id=?
+                    """,
+                    (
+                        request.form.get("prize_name", "").strip(),
+                        max(1, int_form("quantity", 1)),
+                        max(0, int_form("prize_value", 0)),
+                        max(1, int_form("rank_order", 1)),
+                        1 if request.form.get("active") == "on" else 0,
+                        int_form("item_id"),
+                    ),
+                )
+                flash("Đã cập nhật giải thưởng.", "success")
+            elif action == "delete_item":
+                conn.execute("DELETE FROM prize_items WHERE id=?", (int_form("item_id"),))
+                flash("Đã xóa giải thưởng.", "info")
+        return redirect(url_for("admin_prizes"))
+
+    with db() as conn:
+        participant_count = participant_count_for_prize(conn)
+        current_tier = get_active_prize_tier(conn, participant_count)
+        groups = get_prize_tiers_with_items(conn, active_only=False)
+    return render_template(
+        "admin/prizes.html",
+        groups=groups,
+        participant_count=participant_count,
+        current_tier=current_tier,
+    )
+
+
+@app.route("/admin/winners")
+@login_required
+@admin_required
+def admin_winners():
+    month = request.args.get("month", current_month()).strip() or current_month()
+    with db() as conn:
+        participant_count = participant_count_for_prize(conn)
+        current_tier = get_active_prize_tier(conn, participant_count)
+        prize_items = []
+        if current_tier:
+            prize_items = conn.execute(
+                """
+                SELECT * FROM prize_items
+                WHERE tier_id=? AND active=1
+                ORDER BY rank_order ASC, id ASC
+                """,
+                (current_tier["id"],),
+            ).fetchall()
+        winners_rows = conn.execute(
+            "SELECT * FROM monthly_winners WHERE month_key=? ORDER BY rank_no ASC",
+            (month,),
+        ).fetchall()
+        ranking_preview = get_ranking_rows(conn, month, limit=20)
+    return render_template(
+        "admin/winners.html",
+        month=month,
+        participant_count=participant_count,
+        current_tier=current_tier,
+        prize_items=prize_items,
+        winners=winners_rows,
+        ranking_preview=ranking_preview,
+    )
+
+
+@app.route("/admin/winners/close", methods=["POST"])
+@login_required
+@admin_required
+def admin_close_winners():
+    month = request.form.get("month", current_month()).strip() or current_month()
+    with db() as conn:
+        participant_count = participant_count_for_prize(conn)
+        current_tier = get_active_prize_tier(conn, participant_count)
+        if not current_tier:
+            flash("Chưa có mốc giải thưởng phù hợp. Vui lòng cấu hình tại Admin → Giải thưởng.", "danger")
+            return redirect(url_for("admin_winners", month=month))
+        prize_items = conn.execute(
+            """
+            SELECT * FROM prize_items
+            WHERE tier_id=? AND active=1
+            ORDER BY rank_order ASC, id ASC
+            """,
+            (current_tier["id"],),
+        ).fetchall()
+        slots = []
+        for item in prize_items:
+            for _ in range(max(1, int(item["quantity"] or 1))):
+                slots.append(item)
+        if not slots:
+            flash("Mốc giải hiện tại chưa có giải thưởng active.", "danger")
+            return redirect(url_for("admin_winners", month=month))
+
+        ranking_rows = get_ranking_rows(conn, month, limit=len(slots))
+        if not ranking_rows:
+            flash("Chưa có người đủ điều kiện để chốt giải trong tháng này.", "warning")
+            return redirect(url_for("admin_winners", month=month))
+
+        conn.execute("DELETE FROM monthly_winners WHERE month_key=?", (month,))
+        finalized_at = now_text()
+        for idx, (ranker, prize) in enumerate(zip(ranking_rows, slots), start=1):
+            conn.execute(
+                """
+                INSERT INTO monthly_winners
+                (month_key, rank_no, user_id, user_name, email, group_type, unit_name,
+                 total_points, valid_posts, prize_tier_title, prize_name, prize_value, finalized_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    month,
+                    idx,
+                    ranker["id"],
+                    ranker["name"],
+                    ranker["email"],
+                    ranker["group_type"],
+                    unit_name_from_row(ranker),
+                    int(ranker["total_points"] or 0),
+                    int(ranker["valid_posts"] or 0),
+                    current_tier["title"],
+                    prize["prize_name"],
+                    int(prize["prize_value"] or 0),
+                    finalized_at,
+                ),
+            )
+    flash(f"Đã chốt {min(len(ranking_rows), len(slots))} giải thưởng cho tháng {month}.", "success")
+    return redirect(url_for("admin_winners", month=month))
+
+
+@app.route("/admin/winners/download")
+@login_required
+@admin_required
+def admin_winners_download():
+    month = request.args.get("month", current_month()).strip() or current_month()
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM monthly_winners WHERE month_key=? ORDER BY rank_no ASC",
+            (month,),
+        ).fetchall()
+    df = pd.DataFrame([dict(r) for r in rows])
+    if not df.empty:
+        df = df.rename(columns={
+            "month_key": "Tháng",
+            "rank_no": "Hạng",
+            "user_name": "Họ tên",
+            "email": "Email",
+            "group_type": "Nhóm",
+            "unit_name": "Đơn vị",
+            "total_points": "Tổng điểm",
+            "valid_posts": "Bài hợp lệ",
+            "prize_tier_title": "Mốc giải",
+            "prize_name": "Tên giải",
+            "prize_value": "Giá trị giải",
+            "finalized_at": "Thời gian chốt",
+        })
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="DanhSachTraoGiai")
+    output.seek(0)
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name=f"danh_sach_trao_giai_npoil_{month}.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
 @app.route("/admin")
 @login_required
 @admin_required

@@ -1,20 +1,32 @@
 {% extends "layout.html" %}
 {% block content %}
-<h2>Admin Dashboard</h2>
+<div class="card hero-card mb-4">
+  <div class="card-body p-4 p-lg-5">
+    <div class="hero-label mb-3"><i class="bi bi-shield-lock-fill"></i> Khu vực quản trị</div>
+    <h1 class="hero-title mb-2">Điều hành chương trình thi đua truyền thông.</h1>
+    <p class="hero-muted fs-5 mb-0">Quản lý người tham gia, nhiệm vụ, điểm/credit, giải thưởng, chốt giải và báo cáo Excel.</p>
+  </div>
+</div>
 <div class="row g-3 mb-4">
-  <div class="col-md-3"><div class="card stat-card"><div class="card-body"><div class="small-muted">Người tham gia</div><h3>{{ stats.users }}</h3></div></div></div>
-  <div class="col-md-3"><div class="card stat-card"><div class="card-body"><div class="small-muted">Nhiệm vụ</div><h3>{{ stats.missions }}</h3></div></div></div>
-  <div class="col-md-3"><div class="card stat-card"><div class="card-body"><div class="small-muted">Cần kiểm tra</div><h3>{{ stats.pending }}</h3></div></div></div>
-  <div class="col-md-3"><div class="card stat-card"><div class="card-body"><div class="small-muted">Lượt tìm kiếm</div><h3>{{ stats.searches }}</h3></div></div></div>
+  <div class="col-6 col-xl-3"><div class="card stat-card h-100"><div class="card-body"><div class="small-muted">Người tham gia</div><h3>{{ stats.users }}</h3></div></div></div>
+  <div class="col-6 col-xl-3"><div class="card stat-card h-100"><div class="card-body"><div class="small-muted">Nhiệm vụ</div><h3>{{ stats.missions }}</h3></div></div></div>
+  <div class="col-6 col-xl-3"><div class="card stat-card h-100"><div class="card-body"><div class="small-muted">Cần kiểm tra</div><h3>{{ stats.pending }}</h3></div></div></div>
+  <div class="col-6 col-xl-3"><div class="card stat-card h-100"><div class="card-body"><div class="small-muted">Lượt tìm kiếm</div><h3>{{ stats.searches }}</h3></div></div></div>
+</div>
+<div class="row g-3 mb-4">
+  <div class="col-md-3"><a class="card app-card h-100 text-decoration-none" href="{{ url_for('admin_missions') }}"><div class="card-body"><span class="icon-bubble mb-3"><i class="bi bi-list-task"></i></span><h5>Tạo nhiệm vụ</h5><div class="small-muted">Thiết lập bài trọng điểm, hashtag, điểm và credit.</div></div></a></div>
+  <div class="col-md-3"><a class="card app-card h-100 text-decoration-none" href="{{ url_for('admin_submissions') }}"><div class="card-body"><span class="icon-bubble mb-3"><i class="bi bi-clipboard-check-fill"></i></span><h5>Duyệt ngoại lệ</h5><div class="small-muted">Xử lý bài cần kiểm tra hoặc bổ sung minh chứng.</div></div></a></div>
+  <div class="col-md-3"><a class="card app-card h-100 text-decoration-none" href="{{ url_for('admin_prizes') }}"><div class="card-body"><span class="icon-bubble mb-3"><i class="bi bi-award-fill"></i></span><h5>Giải thưởng</h5><div class="small-muted">Chỉnh mốc giải và giá trị giải thưởng.</div></div></a></div>
+  <div class="col-md-3"><a class="card app-card h-100 text-decoration-none" href="{{ url_for('admin_winners') }}"><div class="card-body"><span class="icon-bubble mb-3"><i class="bi bi-patch-check-fill"></i></span><h5>Chốt giải</h5><div class="small-muted">Tự động lấy top bảng xếp hạng và lưu kết quả.</div></div></a></div>
 </div>
 <div class="card app-card">
-  <div class="card-header bg-white"><strong>Bài gửi mới nhất</strong></div>
+  <div class="card-header"><strong>Bài gửi mới nhất</strong></div>
   <div class="card-body p-0 table-responsive">
     <table class="table table-hover mb-0">
       <thead><tr><th>Người gửi</th><th>Nhiệm vụ</th><th>Trạng thái</th><th>Điểm</th><th>Credit</th><th>Ngày gửi</th></tr></thead>
       <tbody>
       {% for s in latest %}
-        <tr><td>{{ s.user_name }}</td><td>{{ s.mission_title }}</td><td>{{ s.status }}</td><td>{{ s.points_awarded }}</td><td>{{ s.credit_awarded }}</td><td>{{ s.created_at }}</td></tr>
+        <tr><td><strong>{{ s.user_name }}</strong></td><td>{{ s.mission_title }}</td><td><span class="badge text-bg-secondary">{{ s.status }}</span></td><td>{{ s.points_awarded }}</td><td>{{ s.credit_awarded }}</td><td>{{ s.created_at }}</td></tr>
       {% else %}<tr><td colspan="6" class="text-center py-4 text-muted">Chưa có dữ liệu.</td></tr>{% endfor %}
       </tbody>
     </table>

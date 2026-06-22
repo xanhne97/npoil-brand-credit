@@ -1,0 +1,85 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+  <div>
+    <h2 class="mb-0"><i class="bi bi-award-fill text-brand me-2"></i>Quản lý giải thưởng</h2>
+    <div class="small-muted">Admin có thể chỉnh mốc giải, số lượng giải và giá trị giải thưởng mà không cần sửa code.</div>
+  </div>
+  <a class="btn btn-warning" href="{{ url_for('admin_winners') }}"><i class="bi bi-patch-check-fill me-1"></i>Chốt giải tháng</a>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-4"><div class="card stat-card h-100"><div class="card-body"><div class="small-muted">Thành viên active</div><h3>{{ participant_count }}</h3></div></div></div>
+  <div class="col-md-8"><div class="card app-card h-100"><div class="card-body"><div class="small-muted">Mốc đang áp dụng</div><h4 class="mb-1">{{ current_tier.title if current_tier else 'Chưa có mốc phù hợp' }}</h4><div class="small-muted">Hệ thống tự xác định theo số lượng người đăng ký hợp lệ, không tính admin.</div></div></div></div>
+</div>
+
+<div class="card app-card mb-4">
+  <div class="card-header"><strong>Thêm mốc giải thưởng mới</strong></div>
+  <div class="card-body">
+    <form method="post" class="row g-2 align-items-end">
+      <input type="hidden" name="action" value="create_tier">
+      <div class="col-lg-4"><label class="form-label">Tên mốc</label><input class="form-control" name="title" required placeholder="Ví dụ: Từ 51 - 100 thành viên"></div>
+      <div class="col-lg-2"><label class="form-label">Từ người</label><input class="form-control" type="number" name="min_participants" value="0" required></div>
+      <div class="col-lg-2"><label class="form-label">Đến người</label><input class="form-control" type="number" name="max_participants" placeholder="Bỏ trống = không giới hạn"></div>
+      <div class="col-lg-3"><label class="form-label">Ghi chú</label><input class="form-control" name="note"></div>
+      <div class="col-lg-1"><div class="form-check mb-2"><input class="form-check-input" type="checkbox" name="active" checked id="active_new"><label class="form-check-label" for="active_new">Bật</label></div></div>
+      <div class="col-12"><button class="btn btn-warning"><i class="bi bi-plus-circle me-1"></i>Thêm mốc</button></div>
+    </form>
+  </div>
+</div>
+
+<div class="row g-3">
+{% for group in groups %}
+{% set tier = group['tier'] %}
+<div class="col-12">
+  <div class="card app-card {% if current_tier and tier.id == current_tier.id %}active-tier{% endif %}">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <div><strong>{{ tier.title }}</strong> <span class="badge {% if tier.active %}text-bg-success{% else %}text-bg-secondary{% endif %}">{{ 'Đang bật' if tier.active else 'Đang tắt' }}</span>{% if current_tier and tier.id == current_tier.id %} <span class="badge text-bg-warning">Đang áp dụng</span>{% endif %}</div>
+      <small class="text-muted">Từ {{ tier.min_participants }}{% if tier.max_participants %} đến {{ tier.max_participants }}{% else %}+{% endif %} thành viên</small>
+    </div>
+    <div class="card-body">
+      <form method="post" class="row g-2 align-items-end mb-4">
+        <input type="hidden" name="action" value="update_tier"><input type="hidden" name="tier_id" value="{{ tier.id }}">
+        <div class="col-lg-4"><label class="form-label">Tên mốc</label><input class="form-control" name="title" value="{{ tier.title }}" required></div>
+        <div class="col-lg-2"><label class="form-label">Từ người</label><input class="form-control" type="number" name="min_participants" value="{{ tier.min_participants }}" required></div>
+        <div class="col-lg-2"><label class="form-label">Đến người</label><input class="form-control" type="number" name="max_participants" value="{{ tier.max_participants or '' }}"></div>
+        <div class="col-lg-3"><label class="form-label">Ghi chú</label><input class="form-control" name="note" value="{{ tier.note or '' }}"></div>
+        <div class="col-lg-1"><div class="form-check mb-2"><input class="form-check-input" type="checkbox" name="active" {% if tier.active %}checked{% endif %}><label class="form-check-label">Bật</label></div></div>
+        <div class="col-12"><button class="btn btn-outline-success btn-sm">Lưu mốc</button></div>
+      </form>
+
+      <div class="table-responsive mb-3">
+        <table class="table table-hover mb-0">
+          <thead><tr><th>Thứ tự</th><th>Tên giải</th><th>Số lượng</th><th>Giá trị</th><th>Bật/tắt</th><th>Lưu/Xóa</th></tr></thead>
+          <tbody>
+          {% for item in group['items'] %}
+          <tr>
+            <form method="post">
+              <input type="hidden" name="action" value="update_item"><input type="hidden" name="item_id" value="{{ item.id }}">
+              <td><input class="form-control form-control-sm" type="number" name="rank_order" value="{{ item.rank_order }}" style="width:90px"></td>
+              <td><input class="form-control form-control-sm" name="prize_name" value="{{ item.prize_name }}" required></td>
+              <td><input class="form-control form-control-sm" type="number" name="quantity" value="{{ item.quantity }}" style="width:100px"></td>
+              <td><input class="form-control form-control-sm" type="number" name="prize_value" value="{{ item.prize_value }}"></td>
+              <td><input class="form-check-input" type="checkbox" name="active" {% if item.active %}checked{% endif %}></td>
+              <td class="d-flex gap-1"><button class="btn btn-sm btn-success">Lưu</button></form><form method="post" onsubmit="return confirm('Xóa giải thưởng này?')"><input type="hidden" name="action" value="delete_item"><input type="hidden" name="item_id" value="{{ item.id }}"><button class="btn btn-sm btn-outline-danger">Xóa</button></form></td>
+          </tr>
+          {% else %}<tr><td colspan="6" class="text-center text-muted py-3">Chưa có giải trong mốc này.</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <form method="post" class="row g-2 align-items-end bg-light rounded-4 p-3">
+        <input type="hidden" name="action" value="create_item"><input type="hidden" name="tier_id" value="{{ tier.id }}">
+        <div class="col-lg-2"><label class="form-label">Thứ tự</label><input class="form-control" type="number" name="rank_order" value="1"></div>
+        <div class="col-lg-3"><label class="form-label">Tên giải</label><input class="form-control" name="prize_name" placeholder="Giải Nhất" required></div>
+        <div class="col-lg-2"><label class="form-label">Số lượng</label><input class="form-control" type="number" name="quantity" value="1"></div>
+        <div class="col-lg-3"><label class="form-label">Giá trị</label><input class="form-control" type="number" name="prize_value" value="0"></div>
+        <div class="col-lg-1"><div class="form-check mb-2"><input class="form-check-input" type="checkbox" name="active" checked><label class="form-check-label">Bật</label></div></div>
+        <div class="col-lg-1"><button class="btn btn-warning w-100"><i class="bi bi-plus"></i></button></div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
+</div>
+{% endblock %}

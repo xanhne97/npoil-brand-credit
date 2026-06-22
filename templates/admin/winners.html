@@ -1,0 +1,71 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+  <div>
+    <h2 class="mb-0"><i class="bi bi-patch-check-fill text-green me-2"></i>Chốt giải thưởng tháng</h2>
+    <div class="small-muted">Hệ thống lấy bảng xếp hạng tháng, áp dụng mốc giải hiện tại và lưu kết quả cố định.</div>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <a class="btn btn-outline-success" href="{{ url_for('admin_prizes') }}">Quản lý giải thưởng</a>
+    <a class="btn btn-success" href="{{ url_for('admin_winners_download', month=month) }}">Tải Excel trao giải</a>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-lg-4"><div class="card stat-card h-100"><div class="card-body"><div class="small-muted">Thành viên active</div><h3>{{ participant_count }}</h3></div></div></div>
+  <div class="col-lg-8"><div class="card app-card h-100"><div class="card-body"><div class="small-muted">Mốc giải áp dụng</div><h4>{{ current_tier.title if current_tier else 'Chưa có mốc phù hợp' }}</h4><div class="small-muted">Số giải active: {{ prize_items|length }}</div></div></div></div>
+</div>
+
+<div class="card app-card mb-4">
+  <div class="card-body">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-6">
+        <form method="get" class="row g-2 align-items-end">
+          <div class="col-8"><label class="form-label">Tháng cần chốt</label><input class="form-control" name="month" value="{{ month }}" placeholder="YYYY-MM"></div>
+          <div class="col-4"><button class="btn btn-outline-success w-100">Xem tháng</button></div>
+        </form>
+      </div>
+      <div class="col-md-6">
+        <form method="post" action="{{ url_for('admin_close_winners') }}" onsubmit="return confirm('Chốt lại giải thưởng tháng {{ month }}? Kết quả cũ của tháng này sẽ được ghi đè.')">
+          <input type="hidden" name="month" value="{{ month }}">
+          <button class="btn btn-warning w-100"><i class="bi bi-check2-circle me-1"></i>Chốt giải tháng {{ month }}</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-xl-6">
+    <div class="card app-card h-100">
+      <div class="card-header"><strong>Danh sách giải sẽ áp dụng</strong></div>
+      <div class="card-body p-0 table-responsive">
+        <table class="table mb-0"><thead><tr><th>Thứ tự</th><th>Giải</th><th>Số lượng</th><th>Giá trị</th></tr></thead><tbody>
+        {% for p in prize_items %}<tr><td>{{ p.rank_order }}</td><td><strong>{{ p.prize_name }}</strong></td><td>{{ p.quantity }}</td><td>{{ p.prize_value|vnd }}</td></tr>{% else %}<tr><td colspan="4" class="text-center text-muted py-4">Chưa có giải active.</td></tr>{% endfor %}
+        </tbody></table>
+      </div>
+    </div>
+  </div>
+  <div class="col-xl-6">
+    <div class="card app-card h-100">
+      <div class="card-header"><strong>Top xếp hạng xem trước</strong></div>
+      <div class="card-body p-0 table-responsive">
+        <table class="table mb-0"><thead><tr><th>Hạng</th><th>Người dùng</th><th>Điểm</th><th>Bài</th></tr></thead><tbody>
+        {% for r in ranking_preview %}<tr><td>{{ loop.index }}</td><td><strong>{{ r.name }}</strong><br><small class="text-muted">{{ r.email }}</small></td><td><strong>{{ r.total_points }}</strong></td><td>{{ r.valid_posts }}</td></tr>{% else %}<tr><td colspan="4" class="text-center text-muted py-4">Chưa có người đủ điều kiện.</td></tr>{% endfor %}
+        </tbody></table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card app-card mt-4">
+  <div class="card-header d-flex justify-content-between align-items-center"><strong>Kết quả đã chốt tháng {{ month }}</strong><a class="btn btn-sm btn-outline-warning" href="{{ url_for('winners', month=month) }}">Xem trang vinh danh</a></div>
+  <div class="card-body p-0 table-responsive">
+    <table class="table table-hover mb-0"><thead><tr><th>Hạng</th><th>Người thắng</th><th>Nhóm/Đơn vị</th><th>Điểm</th><th>Bài</th><th>Giải</th><th>Giá trị</th><th>Chốt lúc</th></tr></thead><tbody>
+    {% for w in winners %}
+    <tr class="winner-row"><td><span class="rank-medal">{{ w.rank_no }}</span></td><td><strong>{{ w.user_name }}</strong><br><small class="text-muted">{{ w.email }}</small></td><td>{{ w.group_type }}<br><small>{{ w.unit_name or '-' }}</small></td><td><strong>{{ w.total_points }}</strong></td><td>{{ w.valid_posts }}</td><td><span class="badge text-bg-warning">{{ w.prize_name }}</span></td><td><strong>{{ w.prize_value|vnd }}</strong></td><td>{{ w.finalized_at }}</td></tr>
+    {% else %}<tr><td colspan="8" class="text-center text-muted py-4">Chưa chốt giải cho tháng này.</td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+</div>
+{% endblock %}

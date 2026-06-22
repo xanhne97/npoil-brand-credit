@@ -1,58 +1,73 @@
 {% extends "layout.html" %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <div>
-    <h2 class="mb-0">Tổng quan</h2>
-    <div class="small-muted">Xin chào {{ current_user.name }} · Tháng {{ month_now }}</div>
+<div class="card hero-card mb-4">
+  <div class="card-body p-4 p-lg-5">
+    <div class="row align-items-center g-4">
+      <div class="col-lg-8">
+        <div class="hero-label mb-3"><i class="bi bi-calendar2-check-fill"></i> Tháng {{ month_now }}</div>
+        <h1 class="hero-title mb-3">Xin chào, {{ current_user.name }}!</h1>
+        <p class="hero-muted fs-5 mb-0">Hoàn thành nhiệm vụ truyền thông, tích điểm thi đua, nhận credit và dùng credit để tìm kiếm khách hàng tiềm năng trên Google Maps.</p>
+      </div>
+      <div class="col-lg-4">
+        <div class="glass-box">
+          <div class="d-flex align-items-center justify-content-between mb-2"><span>Credit hiện có</span><i class="bi bi-lightning-charge-fill fs-3"></i></div>
+          <div class="display-5 fw-black">{{ current_user.credit_balance }}</div>
+          <a class="btn btn-light btn-sm mt-2" href="{{ url_for('search') }}">Tìm khách hàng ngay</a>
+        </div>
+      </div>
+    </div>
   </div>
-  <a class="btn btn-warning" href="{{ url_for('missions') }}">Làm nhiệm vụ</a>
 </div>
 
 <div class="row g-3 mb-4">
-  <div class="col-md-3"><div class="card stat-card"><div class="card-body"><div class="small-muted">Điểm tháng này</div><h3>{{ points }}</h3></div></div></div>
-  <div class="col-md-3"><div class="card stat-card"><div class="card-body"><div class="small-muted">Credit hiện có</div><h3>{{ current_user.credit_balance }}</h3></div></div></div>
-  <div class="col-md-3"><div class="card stat-card"><div class="card-body"><div class="small-muted">Bài đã gửi</div><h3>{{ total_submissions }}</h3></div></div></div>
-  <div class="col-md-3"><div class="card stat-card"><div class="card-body"><div class="small-muted">Lượt tìm kiếm</div><h3>{{ searches }}</h3></div></div></div>
+  <div class="col-6 col-xl-3"><div class="card stat-card h-100"><div class="card-body"><div class="d-flex justify-content-between"><div><div class="small-muted">Điểm tháng này</div><h3>{{ points }}</h3></div><span class="icon-bubble"><i class="bi bi-trophy-fill"></i></span></div></div></div></div>
+  <div class="col-6 col-xl-3"><div class="card stat-card h-100"><div class="card-body"><div class="d-flex justify-content-between"><div><div class="small-muted">Credit hiện có</div><h3>{{ current_user.credit_balance }}</h3></div><span class="icon-bubble"><i class="bi bi-wallet2"></i></span></div></div></div></div>
+  <div class="col-6 col-xl-3"><div class="card stat-card h-100"><div class="card-body"><div class="d-flex justify-content-between"><div><div class="small-muted">Bài đã gửi</div><h3>{{ total_submissions }}</h3></div><span class="icon-bubble"><i class="bi bi-send-check-fill"></i></span></div></div></div></div>
+  <div class="col-6 col-xl-3"><div class="card stat-card h-100"><div class="card-body"><div class="d-flex justify-content-between"><div><div class="small-muted">Lượt tìm kiếm</div><h3>{{ searches }}</h3></div><span class="icon-bubble"><i class="bi bi-search-heart-fill"></i></span></div></div></div></div>
 </div>
 
 <div class="row g-3">
-  <div class="col-lg-8">
+  <div class="col-xl-8">
     <div class="card app-card">
-      <div class="card-header bg-white"><strong>Bài gửi gần đây</strong></div>
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <strong><i class="bi bi-clock-history me-1 text-green"></i>Bài gửi gần đây</strong>
+        <a class="btn btn-sm btn-outline-success" href="{{ url_for('my_submissions') }}">Xem tất cả</a>
+      </div>
       <div class="card-body p-0 table-responsive">
         <table class="table table-hover mb-0">
           <thead><tr><th>Nhiệm vụ</th><th>Trạng thái</th><th>Điểm</th><th>Credit</th><th>Ngày gửi</th></tr></thead>
           <tbody>
           {% for s in latest_submissions %}
             <tr>
-              <td>{{ s.mission_title }}</td>
-              <td><span class="badge text-bg-secondary">{{ s.status }}</span></td>
-              <td>{{ s.points_awarded }}</td>
+              <td><strong>{{ s.mission_title }}</strong></td>
+              <td><span class="badge {% if s.status in ['approved','auto_approved'] %}text-bg-success{% elif s.status=='rejected' %}text-bg-danger{% elif s.status=='need_more_proof' %}text-bg-warning{% else %}text-bg-secondary{% endif %}">{{ s.status }}</span></td>
+              <td><strong>{{ s.points_awarded }}</strong></td>
               <td>{{ s.credit_awarded }}</td>
               <td>{{ s.created_at }}</td>
             </tr>
           {% else %}
-            <tr><td colspan="5" class="text-center text-muted py-4">Chưa có bài gửi.</td></tr>
+            <tr><td colspan="5" class="text-center text-muted py-4">Chưa có bài gửi. Bấm “Làm nhiệm vụ” để bắt đầu.</td></tr>
           {% endfor %}
           </tbody>
         </table>
       </div>
     </div>
   </div>
-  <div class="col-lg-4">
-    <div class="card app-card">
-      <div class="card-body">
-        <h5>Luồng hoạt động</h5>
-        <ol class="small-muted mb-0">
+  <div class="col-xl-4">
+    <div class="card app-card h-100">
+      <div class="card-body p-4">
+        <div class="d-flex align-items-center gap-3 mb-3"><span class="icon-bubble"><i class="bi bi-diagram-3-fill"></i></span><div><h5 class="mb-0">Luồng hoạt động</h5><div class="small-muted">Tự động ghi nhận, giảm quản lý thủ công</div></div></div>
+        <ol class="small-muted mb-0 ps-3">
           <li>Chọn nhiệm vụ truyền thông.</li>
           <li>Đăng bài/share/comment có mã nhiệm vụ và hashtag.</li>
           <li>Gửi link + nội dung/caption + chỉ số.</li>
-          <li>Hệ thống tự kiểm tra và cộng điểm/credit nếu hợp lệ.</li>
+          <li>Hệ thống tự kiểm tra, cộng điểm/credit nếu hợp lệ.</li>
           <li>Dùng credit để tìm kiếm khách hàng Google Maps.</li>
         </ol>
-        <div class="d-grid gap-2 mt-3">
-          <a class="btn btn-outline-warning btn-sm" href="{{ url_for('leaderboard') }}">Xem bảng xếp hạng</a>
-          <a class="btn btn-outline-success btn-sm" href="{{ url_for('prizes') }}">Xem cơ cấu giải thưởng</a>
+        <div class="d-grid gap-2 mt-4">
+          <a class="btn btn-warning" href="{{ url_for('missions') }}"><i class="bi bi-megaphone-fill me-1"></i>Làm nhiệm vụ</a>
+          <a class="btn btn-outline-success" href="{{ url_for('leaderboard') }}">Xem bảng xếp hạng</a>
+          <a class="btn btn-outline-warning" href="{{ url_for('winners') }}">Xem vinh danh</a>
         </div>
       </div>
     </div>

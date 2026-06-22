@@ -31,3 +31,24 @@ Deploy Render:
   SERPAPI_API_KEY neu DEMO_MODE=0
   ADMIN_EMAIL
   ADMIN_PASSWORD
+
+==============================
+CẬP NHẬT V5 - GIẢI THƯỞNG + GIAO DIỆN RESPONSIVE
+==============================
+Bản V5 bổ sung:
+- Giao diện mới đẹp hơn, có sidebar desktop và thanh menu ngang responsive trên mobile.
+- Trang /admin/prizes để admin tự chỉnh mốc giải thưởng, số lượng giải và giá trị giải.
+- Trang /admin/winners để admin chốt giải theo tháng từ bảng xếp hạng.
+- Trang /winners để người dùng xem danh sách vinh danh đã chốt.
+- Xuất Excel danh sách trao giải tại /admin/winners/download.
+
+Sau khi deploy V5 lên Render:
+1. Đăng nhập admin.
+2. Vào Admin → Quản lý giải thưởng để kiểm tra mốc giải.
+3. Vào Admin → Chốt giải để chọn tháng và bấm Chốt giải.
+4. Vào Vinh danh để xem kết quả người thắng giải.
+
+Lưu ý:
+- Nếu đang dùng PostgreSQL, bảng mới sẽ tự được tạo khi app khởi động.
+- Nếu đang dùng SQLite local, không upload file npoil_brand_credit.db lên GitHub.
+- Nếu deploy trên Render, nên dùng PostgreSQL để dữ liệu tồn tại lâu dài.

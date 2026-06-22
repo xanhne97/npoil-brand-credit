@@ -4,83 +4,110 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ title or 'NPOIL Brand Credit' }}</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-  <style>
-    body { background:#f6f8fb; }
-    .navbar-brand strong { color:#f58220; }
-    .app-card { border:0; border-radius:18px; box-shadow:0 8px 24px rgba(15,23,42,.08); }
-    .stat-card { border:0; border-radius:18px; box-shadow:0 8px 24px rgba(15,23,42,.08); }
-    .nav-pills .nav-link.active { background:#f58220; }
-    .badge-soft { background:#eef2ff; color:#3730a3; }
-    .table td, .table th { vertical-align: middle; }
-    .small-muted { color:#64748b; font-size:.92rem; }
-  </style>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/npoil.css') }}">
 </head>
 <body>
-<nav class="navbar navbar-expand-lg bg-white shadow-sm sticky-top">
-  <div class="container-fluid">
-    <a class="navbar-brand" href="{{ url_for('dashboard') if current_user else url_for('login') }}"><strong>NPOIL</strong> Brand Credit</a>
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav"><span class="navbar-toggler-icon"></span></button>
-    <div class="collapse navbar-collapse" id="nav">
-      {% if current_user %}
-      <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('dashboard') }}">Tổng quan</a></li>
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('missions') }}">Nhiệm vụ</a></li>
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('my_submissions') }}">Bài đã gửi</a></li>
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('wallet') }}">Điểm/Credit</a></li>
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('search') }}">Tìm khách hàng</a></li>
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('leaderboard') }}">Xếp hạng</a></li>
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('prizes') }}">Giải thưởng</a></li>
-        {% if current_user.is_admin %}
-        <li class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">Admin</a>
-          <ul class="dropdown-menu">
-            <li><a class="dropdown-item" href="{{ url_for('admin_dashboard') }}">Dashboard Admin</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('admin_users') }}">Người dùng</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('admin_missions') }}">Nhiệm vụ</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('admin_scoring') }}">Cấu hình điểm/credit</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('admin_submissions') }}">Duyệt bài</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('admin_reports') }}">Báo cáo</a></li>
-          </ul>
-        </li>
-        {% endif %}
-      </ul>
-      <div class="d-flex align-items-center gap-2">
-        <span class="badge text-bg-warning">{{ current_user.credit_balance }} credit</span>
-        <span class="small text-muted">{{ current_user.name }}</span>
-        <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('logout') }}">Đăng xuất</a>
+{% set ep = request.endpoint or '' %}
+{% set nav_items = [
+  ('dashboard','Tổng quan','bi-grid-1x2-fill'),
+  ('missions','Nhiệm vụ','bi-megaphone-fill'),
+  ('my_submissions','Bài đã gửi','bi-send-check-fill'),
+  ('wallet','Điểm/Credit','bi-wallet2'),
+  ('search','Tìm khách hàng','bi-search-heart-fill'),
+  ('leaderboard','Xếp hạng','bi-trophy-fill'),
+  ('prizes','Giải thưởng','bi-gift-fill'),
+  ('winners','Vinh danh','bi-stars')
+] %}
+{% set admin_items = [
+  ('admin_dashboard','Admin dashboard','bi-speedometer2'),
+  ('admin_users','Người dùng','bi-people-fill'),
+  ('admin_missions','Nhiệm vụ','bi-list-task'),
+  ('admin_scoring','Cấu hình điểm','bi-sliders'),
+  ('admin_prizes','Quản lý giải thưởng','bi-award-fill'),
+  ('admin_winners','Chốt giải','bi-patch-check-fill'),
+  ('admin_submissions','Duyệt bài','bi-clipboard-check-fill'),
+  ('admin_reports','Báo cáo','bi-file-earmark-excel-fill')
+] %}
+<div class="app-shell">
+  <nav class="navbar navbar-expand-lg topbar">
+    <div class="container-fluid page-wrap py-2">
+      <a class="navbar-brand d-flex align-items-center gap-2" href="{{ url_for('dashboard') if current_user else url_for('login') }}">
+        <span class="brand-mark">NP</span>
+        <span>
+          <span class="brand-title"><span>NPOIL</span> Brand Credit</span>
+          <span class="brand-sub d-none d-sm-block">Lan tỏa thương hiệu · Tích điểm · Tìm khách hàng</span>
+        </span>
+      </a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#topnav"><span class="navbar-toggler-icon"></span></button>
+      <div class="collapse navbar-collapse" id="topnav">
+        <div class="ms-auto d-flex align-items-center flex-wrap gap-2 mt-3 mt-lg-0">
+          {% if current_user %}
+            <span class="credit-pill"><i class="bi bi-lightning-charge-fill me-1"></i>{{ current_user.credit_balance }} credit</span>
+            <span class="user-pill"><i class="bi bi-person-circle text-green"></i><span class="user-name small fw-bold">{{ current_user.name }}</span></span>
+            <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('logout') }}"><i class="bi bi-box-arrow-right me-1"></i>Đăng xuất</a>
+          {% else %}
+            <a class="btn btn-outline-success btn-sm" href="{{ url_for('login') }}">Đăng nhập</a>
+            <a class="btn btn-warning btn-sm" href="{{ url_for('register') }}">Đăng ký</a>
+          {% endif %}
+        </div>
       </div>
-      {% else %}
-      <div class="ms-auto">
-        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('login') }}">Đăng nhập</a>
-        <a class="btn btn-warning btn-sm" href="{{ url_for('register') }}">Đăng ký</a>
+    </div>
+  </nav>
+
+  <main class="app-main py-4">
+    <div class="container-fluid page-wrap">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+              {{ message }}
+              <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      {% if current_user %}
+      <div class="mobile-quick-nav">
+        {% for endpoint,label,icon in nav_items %}
+          <a class="{% if ep == endpoint %}active{% endif %}" href="{{ url_for(endpoint) }}"><i class="bi {{ icon }} me-1"></i>{{ label }}</a>
+        {% endfor %}
+        {% if current_user.is_admin %}
+          <a class="{% if ep.startswith('admin_') %}active{% endif %}" href="{{ url_for('admin_dashboard') }}"><i class="bi bi-shield-lock-fill me-1"></i>Admin</a>
+        {% endif %}
+      </div>
+      <div class="layout-grid">
+        <aside class="sidebar">
+          <div class="sidebar-title">Chương trình</div>
+          {% for endpoint,label,icon in nav_items %}
+            <a class="side-link {% if ep == endpoint %}active{% endif %}" href="{{ url_for(endpoint) }}"><i class="bi {{ icon }}"></i><span>{{ label }}</span></a>
+          {% endfor %}
+          {% if current_user.is_admin %}
+            <div class="sidebar-title">Quản trị</div>
+            {% for endpoint,label,icon in admin_items %}
+              <a class="side-link {% if ep == endpoint %}active{% endif %}" href="{{ url_for(endpoint) }}"><i class="bi {{ icon }}"></i><span>{{ label }}</span></a>
+            {% endfor %}
+          {% endif %}
+        </aside>
+        <section class="content-pane">
+      {% endif %}
+
+      {% block content %}{% endblock %}
+
+      {% if current_user %}
+        </section>
       </div>
       {% endif %}
     </div>
-  </div>
-</nav>
+  </main>
 
-<main class="container-fluid py-4">
-  {% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}
-      <div class="container-fluid">
-      {% for category, message in messages %}
-        <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
-          {{ message }}
-          <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        </div>
-      {% endfor %}
-      </div>
-    {% endif %}
-  {% endwith %}
-
-  {% block content %}{% endblock %}
-</main>
-
-<footer class="text-center text-muted small py-4">
-  © {{ year }} NPOIL Brand Credit · Lan tỏa thương hiệu – Tích điểm thi đua – Nhận credit tìm kiếm khách hàng
-</footer>
+  <footer class="footer text-center small py-4">
+    © {{ year }} NPOIL Brand Credit · Lan tỏa thương hiệu – Tích điểm thi đua – Nhận credit tìm kiếm khách hàng
+  </footer>
+</div>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
