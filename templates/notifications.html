@@ -1,0 +1,61 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="hero-card mb-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+    <div>
+      <div class="eyebrow"><i class="bi bi-bell-fill me-1"></i>Thông báo hệ thống</div>
+      <h1 class="hero-title mb-1">Trung tâm thông báo</h1>
+      <p class="text-muted mb-0">Theo dõi bài được duyệt, bài bị từ chối, yêu cầu bổ sung minh chứng, credit và giải thưởng.</p>
+    </div>
+    <form method="post" action="{{ url_for('mark_all_notifications_read') }}">
+      <button class="btn btn-success"><i class="bi bi-check2-all me-1"></i>Đánh dấu đã đọc tất cả</button>
+    </form>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body d-flex flex-wrap gap-2 justify-content-between align-items-center">
+    <div class="btn-group flex-wrap">
+      <a class="btn btn-sm {% if status=='all' %}btn-warning{% else %}btn-outline-warning{% endif %}" href="{{ url_for('notifications', status='all') }}">Tất cả</a>
+      <a class="btn btn-sm {% if status=='unread' %}btn-warning{% else %}btn-outline-warning{% endif %}" href="{{ url_for('notifications', status='unread') }}">Chưa đọc</a>
+    </div>
+    <span class="text-muted small">Hiển thị tối đa 200 thông báo gần nhất</span>
+  </div>
+</div>
+
+{% if rows %}
+  <div class="d-grid gap-3">
+    {% for n in rows %}
+      <div class="notification-item {% if not n.is_read %}unread{% endif %}">
+        <div class="d-flex gap-3 align-items-start">
+          <div class="notification-icon">
+            {% if n.notification_type in ['success','winner'] %}<i class="bi bi-patch-check-fill"></i>
+            {% elif n.notification_type in ['danger'] %}<i class="bi bi-x-octagon-fill"></i>
+            {% elif n.notification_type in ['warning'] %}<i class="bi bi-exclamation-triangle-fill"></i>
+            {% else %}<i class="bi bi-bell-fill"></i>{% endif %}
+          </div>
+          <div class="flex-grow-1">
+            <div class="d-flex flex-wrap justify-content-between gap-2">
+              <h5 class="mb-1 fw-black">{% if not n.is_read %}<span class="notification-dot me-2"></span>{% endif %}{{ n.title }}</h5>
+              <span class="text-muted small">{{ n.created_at }}</span>
+            </div>
+            {% if n.message %}<p class="mb-2 text-muted">{{ n.message }}</p>{% endif %}
+            <div class="d-flex flex-wrap gap-2 align-items-center">
+              {% if n.target_url %}<a class="btn btn-sm btn-outline-success" href="{{ n.target_url }}"><i class="bi bi-arrow-right-circle me-1"></i>Mở liên quan</a>{% endif %}
+              {% if not n.is_read %}
+                <form method="post" action="{{ url_for('mark_notification_read', notification_id=n.id) }}">
+                  <input type="hidden" name="next" value="{{ request.full_path }}">
+                  <button class="btn btn-sm btn-outline-secondary"><i class="bi bi-check2 me-1"></i>Đã đọc</button>
+                </form>
+              {% endif %}
+              <span class="badge text-bg-secondary">{{ n.notification_type }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="alert alert-light border">Chưa có thông báo nào.</div>
+{% endif %}
+{% endblock %}

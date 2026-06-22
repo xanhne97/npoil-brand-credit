@@ -124,3 +124,16 @@ Trang admin:
 Lưu ý deploy:
 - Phải upload đủ thư mục templates/ và static/ lên GitHub.
 - Không upload venv/, .env, __pycache__/ và file .db.
+
+
+==============================
+V10 - THÔNG BÁO TỰ ĐỘNG
+==============================
+Bản V10 bổ sung trung tâm thông báo trong hệ thống:
+- Người dùng nhận thông báo khi bài được tự duyệt, admin duyệt, bị từ chối, cần bổ sung minh chứng hoặc đạt giải.
+- Admin nhận thông báo khi có người đăng ký mới, có bài gửi cần kiểm tra hoặc người dùng bổ sung minh chứng.
+- Admin có thể gửi thông báo hàng loạt tại /admin/notifications.
+- Người dùng xem thông báo tại /notifications và có thể đánh dấu đã đọc.
+
+Khi upload lên GitHub/Render nhớ upload đủ thư mục templates/ và static/.
+Không upload: venv, .env, __pycache__, npoil_brand_credit.db.

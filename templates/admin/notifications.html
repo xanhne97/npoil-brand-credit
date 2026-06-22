@@ -1,0 +1,69 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="hero-card mb-4">
+  <div class="eyebrow"><i class="bi bi-broadcast-pin me-1"></i>Admin</div>
+  <h1 class="hero-title mb-1">Gửi thông báo nội bộ</h1>
+  <p class="text-muted mb-0">Gửi thông báo hàng loạt cho nhân viên, nhà phân phối, đại lý hoặc toàn hệ thống.</p>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-4"><div class="card stat-card"><div class="card-body"><div class="text-muted small">Tổng thông báo</div><h3>{{ stats.total }}</h3></div></div></div>
+  <div class="col-md-4"><div class="card stat-card"><div class="card-body"><div class="text-muted small">Chưa đọc</div><h3>{{ stats.unread }}</h3></div></div></div>
+  <div class="col-md-4"><div class="card stat-card"><div class="card-body"><div class="text-muted small">Người dùng active</div><h3>{{ stats.users }}</h3></div></div></div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header fw-bold">Tạo thông báo mới</div>
+  <div class="card-body">
+    <form method="post" class="row g-3">
+      <div class="col-md-8">
+        <label class="form-label">Tiêu đề</label>
+        <input class="form-control" name="title" placeholder="Ví dụ: Cập nhật nhiệm vụ truyền thông tuần này" required>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Gửi đến</label>
+        <select class="form-select" name="group_type">
+          <option value="all">Tất cả người dùng</option>
+          <option value="employee">Nhân viên</option>
+          <option value="distributor">Nhà phân phối</option>
+          <option value="dealer">Đại lý</option>
+          <option value="admin">Admin</option>
+        </select>
+      </div>
+      <div class="col-12">
+        <label class="form-label">Nội dung</label>
+        <textarea class="form-control" name="message" rows="4" placeholder="Nhập nội dung thông báo..."></textarea>
+      </div>
+      <div class="col-12">
+        <label class="form-label">Link liên quan nếu có</label>
+        <input class="form-control" name="target_url" placeholder="Ví dụ: /content-library hoặc /missions">
+      </div>
+      <div class="col-12 text-end">
+        <button class="btn btn-warning"><i class="bi bi-send-fill me-1"></i>Gửi thông báo</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header fw-bold">Thông báo gần đây</div>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead><tr><th>Thời gian</th><th>Người nhận</th><th>Tiêu đề</th><th>Loại</th><th>Trạng thái</th></tr></thead>
+      <tbody>
+      {% for n in rows %}
+        <tr>
+          <td class="small text-muted">{{ n.created_at }}</td>
+          <td><strong>{{ n.user_name or 'N/A' }}</strong><br><span class="small text-muted">{{ n.email or '' }}</span></td>
+          <td>{{ n.title }}<br><span class="small text-muted">{{ n.message }}</span></td>
+          <td><span class="badge text-bg-secondary">{{ n.notification_type }}</span></td>
+          <td>{% if n.is_read %}<span class="badge text-bg-success">Đã đọc</span>{% else %}<span class="badge text-bg-warning">Chưa đọc</span>{% endif %}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5" class="text-center text-muted py-4">Chưa có thông báo.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

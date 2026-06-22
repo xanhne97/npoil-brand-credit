@@ -593,8 +593,13 @@ def current_user():
 
 @app.context_processor
 def inject_globals():
+    user = current_user()
+    unread_count = 0
+    if user:
+        unread_count = unread_notification_count(user["id"])
     return {
-        "current_user": current_user(),
+        "current_user": user,
+        "unread_notifications": unread_count,
         "year": datetime.now().year,
         "month_now": current_month(),
     }
@@ -793,6 +798,21 @@ def init_db():
                 FOREIGN KEY(mission_id) REFERENCES missions(id)
             );
             
+
+            CREATE TABLE IF NOT EXISTS notifications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                message TEXT,
+                notification_type TEXT NOT NULL DEFAULT 'info',
+                target_url TEXT,
+                is_read INTEGER NOT NULL DEFAULT 0,
+                created_by INTEGER,
+                created_at TEXT NOT NULL,
+                read_at TEXT,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            );
+
             CREATE TABLE IF NOT EXISTS app_settings (
                 setting_key TEXT PRIMARY KEY,
                 setting_value TEXT NOT NULL,
@@ -960,6 +980,21 @@ def init_db():
                 created_at TEXT NOT NULL
             );
             
+
+            CREATE TABLE IF NOT EXISTS notifications (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                message TEXT,
+                notification_type TEXT NOT NULL DEFAULT 'info',
+                target_url TEXT,
+                is_read INTEGER NOT NULL DEFAULT 0,
+                created_by INTEGER,
+                created_at TEXT NOT NULL,
+                read_at TEXT,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            );
+
             CREATE TABLE IF NOT EXISTS app_settings (
                 setting_key TEXT PRIMARY KEY,
                 setting_value TEXT NOT NULL,
@@ -1130,6 +1165,48 @@ def add_points(conn, user_id, submission_id, points, reason):
         """,
         (user_id, submission_id, points, reason, current_month(), now_text()),
     )
+
+
+def create_notification(conn, user_id, title, message="", notification_type="info", target_url="", created_by=None):
+    """Create an in-app notification. Safe to call inside existing DB transactions."""
+    if not user_id or not title:
+        return None
+    insert_sql = """
+        INSERT INTO notifications
+        (user_id, title, message, notification_type, target_url, is_read, created_by, created_at, read_at)
+        VALUES (?, ?, ?, ?, ?, 0, ?, ?, NULL)
+    """
+    if USE_POSTGRES:
+        insert_sql += " RETURNING id"
+    cur = conn.execute(
+        insert_sql,
+        (int(user_id), title.strip(), message.strip(), notification_type, target_url or "", created_by, now_text()),
+    )
+    return get_inserted_id(cur)
+
+
+def notify_admins(conn, title, message="", notification_type="admin", target_url="", created_by=None, exclude_user_id=None):
+    query = "SELECT id FROM users WHERE is_admin=1 AND status='active'"
+    params = []
+    if exclude_user_id:
+        query += " AND id<>?"
+        params.append(exclude_user_id)
+    admins = conn.execute(query, tuple(params)).fetchall()
+    for admin in admins:
+        create_notification(conn, admin["id"], title, message, notification_type, target_url, created_by)
+    return len(admins)
+
+
+def unread_notification_count(user_id):
+    try:
+        with db() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS c FROM notifications WHERE user_id=? AND is_read=0",
+                (user_id,),
+            ).fetchone()
+            return int(row["c"] or 0)
+    except Exception:
+        return 0
 
 
 def calculate_submission_score(mission, form_values, settings=None):
@@ -1321,6 +1398,17 @@ def register():
                         now_text(),
                     ),
                 )
+            with db() as conn:
+                new_user = conn.execute("SELECT id, name, email, group_type FROM users WHERE email=?", (email,)).fetchone()
+                if new_user:
+                    notify_admins(
+                        conn,
+                        "Có thành viên mới đăng ký",
+                        f"{new_user['name']} ({new_user['email']}) vừa đăng ký tham gia chương trình.",
+                        "user",
+                        url_for("admin_users"),
+                        created_by=new_user["id"],
+                    )
             flash("Đăng ký thành công. Bạn có thể đăng nhập ngay.", "success")
             return redirect(url_for("login"))
         except Exception as exc:
@@ -1518,10 +1606,45 @@ def submit_mission(mission_id):
             if status == "auto_approved":
                 add_points(conn, user["id"], submission_id, points, f"Hoàn thành nhiệm vụ: {mission['title']}")
                 add_credit(conn, user["id"], credit, "earn", f"Credit từ nhiệm vụ: {mission['title']}")
+                create_notification(
+                    conn,
+                    user["id"],
+                    "Bài đã được duyệt tự động",
+                    f"Nhiệm vụ {mission['title']} đã được cộng {points} điểm và {credit} credit.",
+                    "success",
+                    url_for("my_submissions"),
+                    created_by=user["id"],
+                )
                 flash(f"Bài đã được duyệt tự động. Cộng {points} điểm và {credit} credit.", "success")
             elif status == "rejected":
+                create_notification(
+                    conn,
+                    user["id"],
+                    "Bài bị hệ thống từ chối",
+                    note,
+                    "danger",
+                    url_for("my_submissions"),
+                    created_by=user["id"],
+                )
                 flash("Bài bị hệ thống tự động từ chối: " + note, "danger")
             else:
+                notify_admins(
+                    conn,
+                    "Có bài gửi cần kiểm tra",
+                    f"{user['name']} vừa gửi bài cho nhiệm vụ {mission['title']}.",
+                    "submission",
+                    url_for("admin_submissions"),
+                    created_by=user["id"],
+                )
+                create_notification(
+                    conn,
+                    user["id"],
+                    "Bài đã được ghi nhận",
+                    "Bài của bạn đang chờ hệ thống/admin kiểm tra.",
+                    "warning",
+                    url_for("my_submissions"),
+                    created_by=user["id"],
+                )
                 flash("Bài đã được ghi nhận và chuyển vào danh sách cần kiểm tra.", "warning")
         return redirect(url_for("my_submissions"))
 
@@ -1904,6 +2027,16 @@ def admin_close_winners():
                     finalized_at,
                 ),
             )
+            admin_user = current_user()
+            create_notification(
+                conn,
+                ranker["id"],
+                "Bạn đạt giải trong tháng",
+                f"Chúc mừng bạn đạt {prize['prize_name']} tháng {month}. Giá trị giải thưởng: {format_vnd(prize['prize_value'])}.",
+                "winner",
+                url_for("winners", month=month),
+                created_by=admin_user["id"] if admin_user else None,
+            )
     flash(f"Đã chốt {min(len(ranking_rows), len(slots))} giải thưởng cho tháng {month}.", "success")
     return redirect(url_for("admin_winners", month=month))
 
@@ -2227,6 +2360,16 @@ def admin_approve_submission(submission_id):
         )
         add_points(conn, sub["user_id"], submission_id, points, f"Admin duyệt nhiệm vụ: {sub['mission_title']}")
         add_credit(conn, sub["user_id"], credit, "earn", f"Admin duyệt nhiệm vụ: {sub['mission_title']}")
+        admin_user = current_user()
+        create_notification(
+            conn,
+            sub["user_id"],
+            "Bài đã được admin duyệt",
+            f"Nhiệm vụ {sub['mission_title']} đã được cộng {points} điểm và {credit} credit.",
+            "success",
+            url_for("my_submissions"),
+            created_by=admin_user["id"] if admin_user else None,
+        )
     flash("Đã duyệt bài và cộng điểm/credit.", "success")
     return redirect(url_for("admin_submissions"))
 
@@ -2237,9 +2380,22 @@ def admin_approve_submission(submission_id):
 def admin_reject_submission(submission_id):
     admin_note = request.form.get("admin_note", "Không hợp lệ").strip()
     with db() as conn:
+        sub = conn.execute("SELECT s.*, m.title AS mission_title FROM submissions s JOIN missions m ON m.id=s.mission_id WHERE s.id=?", (submission_id,)).fetchone()
+        if not sub:
+            abort(404)
         conn.execute(
             "UPDATE submissions SET status='rejected', admin_note=? WHERE id=?",
             (admin_note, submission_id),
+        )
+        admin_user = current_user()
+        create_notification(
+            conn,
+            sub["user_id"],
+            "Bài gửi bị từ chối",
+            f"Nhiệm vụ {sub['mission_title']}: {admin_note}",
+            "danger",
+            url_for("my_submissions"),
+            created_by=admin_user["id"] if admin_user else None,
         )
     flash("Đã từ chối bài gửi.", "info")
     return redirect(url_for("admin_submissions"))
@@ -2251,9 +2407,22 @@ def admin_reject_submission(submission_id):
 def admin_need_proof_submission(submission_id):
     admin_note = request.form.get("admin_note", "Vui lòng bổ sung minh chứng rõ hơn.").strip()
     with db() as conn:
+        sub = conn.execute("SELECT s.*, m.title AS mission_title FROM submissions s JOIN missions m ON m.id=s.mission_id WHERE s.id=?", (submission_id,)).fetchone()
+        if not sub:
+            abort(404)
         conn.execute(
             "UPDATE submissions SET status='need_more_proof', admin_note=? WHERE id=?",
             (admin_note, submission_id),
+        )
+        admin_user = current_user()
+        create_notification(
+            conn,
+            sub["user_id"],
+            "Cần bổ sung minh chứng",
+            f"Nhiệm vụ {sub['mission_title']}: {admin_note}",
+            "warning",
+            url_for("my_submissions"),
+            created_by=admin_user["id"] if admin_user else None,
         )
     flash("Đã yêu cầu người dùng bổ sung minh chứng.", "warning")
     return redirect(url_for("admin_submissions", status="need_more_proof"))
@@ -2289,6 +2458,15 @@ def update_submission_proof(submission_id):
             WHERE id=?
             """,
             (proof_file, "Người dùng đã bổ sung minh chứng, chờ admin kiểm tra lại.", submission_id),
+        )
+        mission = conn.execute("SELECT title FROM missions WHERE id=?", (sub["mission_id"],)).fetchone()
+        notify_admins(
+            conn,
+            "Người dùng đã bổ sung minh chứng",
+            f"{user['name']} đã bổ sung minh chứng cho nhiệm vụ {mission['title'] if mission else ''}.",
+            "submission",
+            url_for("admin_submissions", status="need_review"),
+            created_by=user["id"],
         )
     flash("Đã bổ sung minh chứng. Bài được chuyển lại cho admin kiểm tra.", "success")
     return redirect(url_for("my_submissions"))
@@ -2539,8 +2717,24 @@ def admin_run_automation():
                 if not tx_exists:
                     add_points(conn, sub["user_id"], sub["id"], points, f"Tự động duyệt lại nhiệm vụ: {mission['title']}")
                     add_credit(conn, sub["user_id"], credit, "earn", f"Credit tự động từ nhiệm vụ: {mission['title']}")
+                    create_notification(
+                        conn,
+                        sub["user_id"],
+                        "Bài đã được hệ thống tự duyệt",
+                        f"Nhiệm vụ {mission['title']} đã được cộng {points} điểm và {credit} credit.",
+                        "success",
+                        url_for("my_submissions"),
+                    )
                 auto_approved += 1
             elif status == "rejected":
+                create_notification(
+                    conn,
+                    sub["user_id"],
+                    "Bài bị hệ thống từ chối",
+                    note,
+                    "danger",
+                    url_for("my_submissions"),
+                )
                 rejected += 1
             elif status == "need_review":
                 need_review += 1
@@ -2562,6 +2756,102 @@ def admin_run_automation():
     )
     return redirect(url_for("admin_automation"))
 
+
+
+
+@app.route("/notifications")
+@login_required
+def notifications():
+    user = current_user()
+    status = request.args.get("status", "all")
+    if status == "unread":
+        where = "user_id=? AND is_read=0"
+    else:
+        where = "user_id=?"
+    with db() as conn:
+        rows = conn.execute(
+            f"SELECT * FROM notifications WHERE {where} ORDER BY id DESC LIMIT 200",
+            (user["id"],),
+        ).fetchall()
+    return render_template("notifications.html", rows=rows, status=status)
+
+
+@app.route("/notifications/<int:notification_id>/read", methods=["POST"])
+@login_required
+def mark_notification_read(notification_id):
+    user = current_user()
+    next_url = request.form.get("next") or request.referrer or url_for("notifications")
+    with db() as conn:
+        conn.execute(
+            "UPDATE notifications SET is_read=1, read_at=? WHERE id=? AND user_id=?",
+            (now_text(), notification_id, user["id"]),
+        )
+    return redirect(next_url)
+
+
+@app.route("/notifications/read-all", methods=["POST"])
+@login_required
+def mark_all_notifications_read():
+    user = current_user()
+    with db() as conn:
+        conn.execute(
+            "UPDATE notifications SET is_read=1, read_at=? WHERE user_id=? AND is_read=0",
+            (now_text(), user["id"]),
+        )
+    flash("Đã đánh dấu tất cả thông báo là đã đọc.", "success")
+    return redirect(url_for("notifications"))
+
+
+@app.route("/admin/notifications", methods=["GET", "POST"])
+@login_required
+@admin_required
+def admin_notifications():
+    if request.method == "POST":
+        title = request.form.get("title", "").strip()
+        message = request.form.get("message", "").strip()
+        target_url = request.form.get("target_url", "").strip()
+        group_type = request.form.get("group_type", "all").strip()
+        if not title:
+            flash("Vui lòng nhập tiêu đề thông báo.", "danger")
+            return redirect(url_for("admin_notifications"))
+        with db() as conn:
+            query = "SELECT id FROM users WHERE status='active'"
+            params = []
+            if group_type in ("employee", "distributor", "dealer"):
+                query += " AND group_type=?"
+                params.append(group_type)
+            elif group_type == "admin":
+                query += " AND is_admin=1"
+            recipients = conn.execute(query, tuple(params)).fetchall()
+            admin_user = current_user()
+            for recipient in recipients:
+                create_notification(
+                    conn,
+                    recipient["id"],
+                    title,
+                    message,
+                    "broadcast",
+                    target_url,
+                    created_by=admin_user["id"] if admin_user else None,
+                )
+        flash(f"Đã gửi thông báo cho {len(recipients)} người dùng.", "success")
+        return redirect(url_for("admin_notifications"))
+
+    with db() as conn:
+        rows = conn.execute(
+            """
+            SELECT n.*, u.name AS user_name, u.email
+            FROM notifications n
+            LEFT JOIN users u ON u.id=n.user_id
+            ORDER BY n.id DESC LIMIT 200
+            """
+        ).fetchall()
+        stats = {
+            "total": conn.execute("SELECT COUNT(*) AS c FROM notifications").fetchone()["c"],
+            "unread": conn.execute("SELECT COUNT(*) AS c FROM notifications WHERE is_read=0").fetchone()["c"],
+            "users": conn.execute("SELECT COUNT(*) AS c FROM users WHERE status='active'").fetchone()["c"],
+        }
+    return render_template("admin/notifications.html", rows=rows, stats=stats)
 
 @app.route("/admin/scoring", methods=["GET", "POST"])
 @login_required
