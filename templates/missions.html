@@ -1,0 +1,34 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h2 class="mb-0">Danh sách nhiệm vụ</h2>
+    <div class="small-muted">Bài tự đăng và bài chia sẻ từ nội dung chính công ty đều có thể tính điểm.</div>
+  </div>
+</div>
+<div class="row g-3">
+{% for m in missions %}
+  <div class="col-lg-6">
+    <div class="card app-card h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start">
+          <h5>{{ m.title }}</h5>
+          <span class="badge text-bg-warning">{{ m.points_reward }} điểm · {{ m.credit_reward }} credit</span>
+        </div>
+        <p class="small-muted">{{ m.description }}</p>
+        <div class="mb-2"><span class="badge badge-soft">{{ m.platform }}</span> <span class="badge badge-soft">{{ m.mission_type }}</span></div>
+        <div class="small"><strong>Mã nhiệm vụ:</strong> {{ m.mission_code }}</div>
+        <div class="small"><strong>Hashtag:</strong> {{ m.required_hashtags }}</div>
+        <div class="small"><strong>Thời gian:</strong> {{ m.start_date or '-' }} → {{ m.end_date or '-' }}</div>
+        {% if m.official_post_url %}<div class="small"><strong>Bài chính thức:</strong> <a href="{{ m.official_post_url }}" target="_blank">Mở link</a></div>{% endif %}
+      </div>
+      <div class="card-footer bg-white">
+        <a class="btn btn-warning" href="{{ url_for('submit_mission', mission_id=m.id) }}">Gửi bài hoàn thành</a>
+      </div>
+    </div>
+  </div>
+{% else %}
+  <div class="col-12"><div class="alert alert-info">Chưa có nhiệm vụ đang mở.</div></div>
+{% endfor %}
+</div>
+{% endblock %}

@@ -1,0 +1,53 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="row g-3">
+  <div class="col-lg-4">
+    <div class="card app-card">
+      <div class="card-body p-4">
+        <h3>Tìm kiếm khách hàng</h3>
+        <p class="small-muted">Tích hợp APP tìm kiếm Google Maps. Mỗi từ khóa trừ {{ search_credit_per_keyword or 5 }} credit. Xuất Excel trừ {{ export_excel_credit or 10 }} credit.</p>
+        <form method="post">
+          <div class="mb-3">
+            <label class="form-label">Từ khóa, mỗi dòng một từ</label>
+            <textarea name="keywords" class="form-control" rows="5" required placeholder="đại lý dầu nhớt&#10;gara ô tô&#10;sửa xe máy">{{ request.form.keywords }}</textarea>
+          </div>
+          <div class="row">
+            <div class="col-md-6 mb-3"><label class="form-label">Vĩ độ</label><input class="form-control" name="latitude" value="{{ request.form.latitude or '10.9501' }}" required></div>
+            <div class="col-md-6 mb-3"><label class="form-label">Kinh độ</label><input class="form-control" name="longitude" value="{{ request.form.longitude or '106.8167' }}" required></div>
+          </div>
+          <div class="mb-3"><label class="form-label">Bán kính mét</label><input type="number" class="form-control" name="radius_m" value="{{ request.form.radius_m or 3000 }}"></div>
+          <button class="btn btn-warning w-100">Tìm kiếm và trừ credit</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-8">
+    <div class="card app-card">
+      <div class="card-header bg-white d-flex justify-content-between align-items-center">
+        <strong>Kết quả tìm kiếm</strong>
+        {% if log_id %}<a class="btn btn-sm btn-success" href="{{ url_for('download_search', log_id=log_id) }}">Tải Excel</a>{% endif %}
+      </div>
+      <div class="card-body p-0 table-responsive">
+        <table class="table table-hover mb-0">
+          <thead><tr><th>#</th><th>Từ khóa</th><th>Tên</th><th>Địa chỉ</th><th>Điện thoại</th><th>Website</th><th>Khoảng cách</th></tr></thead>
+          <tbody>
+          {% for item in data %}
+            <tr>
+              <td>{{ loop.index }}</td>
+              <td>{{ item.keyword or '-' }}</td>
+              <td>{{ item.title or '-' }}</td>
+              <td>{{ item.address or '-' }}</td>
+              <td>{{ item.phone or '-' }}</td>
+              <td>{% if item.website %}<a href="{{ item.website }}" target="_blank">Xem</a>{% else %}-{% endif %}</td>
+              <td>{% if item.distance is not none %}{{ item.distance|round(0) }}m{% else %}-{% endif %}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="7" class="text-center text-muted py-4">Chưa có kết quả. Nhập từ khóa để tìm.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

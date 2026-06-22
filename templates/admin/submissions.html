@@ -1,0 +1,57 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div><h2 class="mb-0">Duyệt bài gửi</h2><div class="small-muted">Hệ thống tự duyệt bài đủ điều kiện; admin chỉ xử lý bài pending/need_review.</div></div>
+  <div class="btn-group">
+    <a class="btn btn-outline-secondary {% if status=='pending' %}active{% endif %}" href="{{ url_for('admin_submissions', status='pending') }}">Cần kiểm tra</a>
+    <a class="btn btn-outline-secondary {% if status=='auto_approved' %}active{% endif %}" href="{{ url_for('admin_submissions', status='auto_approved') }}">Tự duyệt</a>
+    <a class="btn btn-outline-secondary {% if status=='approved' %}active{% endif %}" href="{{ url_for('admin_submissions', status='approved') }}">Admin duyệt</a>
+    <a class="btn btn-outline-secondary {% if status=='rejected' %}active{% endif %}" href="{{ url_for('admin_submissions', status='rejected') }}">Từ chối</a>
+    <a class="btn btn-outline-secondary {% if status=='all' %}active{% endif %}" href="{{ url_for('admin_submissions', status='all') }}">Tất cả</a>
+  </div>
+</div>
+<div class="card app-card">
+  <div class="card-body p-0 table-responsive">
+    <table class="table table-hover mb-0">
+      <thead><tr><th>Người gửi</th><th>Nhiệm vụ</th><th>Link/Minh chứng</th><th>Chỉ số</th><th>Trạng thái/Ghi chú</th><th>Duyệt/Từ chối</th></tr></thead>
+      <tbody>
+      {% for s in submissions %}
+      <tr>
+        <td><strong>{{ s.user_name }}</strong><br><small>{{ s.email }}</small></td>
+        <td>{{ s.mission_title }}<br><small>{{ s.created_at }}</small></td>
+        <td>
+          <a href="{{ s.post_url }}" target="_blank">Mở bài</a>
+          {% if s.proof_file %}<br><a href="{{ url_for('static', filename=s.proof_file) }}" target="_blank">Mở minh chứng</a>{% endif %}
+        </td>
+        <td class="small">
+          Like: {{ s.like_count }} · Comment: {{ s.comment_count }} · Share: {{ s.share_count }} · View: {{ s.view_count }}<br>
+          Follow: {{ s.follower_before }} → {{ s.follower_after }} · Bạn bè: {{ s.friends_before }} → {{ s.friends_after }}
+        </td>
+        <td class="small"><span class="badge text-bg-secondary">{{ s.status }}</span><br>{{ s.auto_check_note or s.admin_note or '-' }}<br>Điểm/Credit: {{ s.points_awarded }}/{{ s.credit_awarded }}</td>
+        <td style="min-width:260px">
+          {% if s.status in ['pending','need_review'] %}
+          <form method="post" action="{{ url_for('admin_approve_submission', submission_id=s.id) }}" class="mb-2">
+            <div class="input-group input-group-sm mb-1">
+              <input class="form-control" name="points_awarded" type="number" placeholder="Điểm">
+              <input class="form-control" name="credit_awarded" type="number" placeholder="Credit">
+            </div>
+            <input class="form-control form-control-sm mb-1" name="admin_note" placeholder="Ghi chú duyệt">
+            <button class="btn btn-sm btn-success w-100">Duyệt</button>
+          </form>
+          <form method="post" action="{{ url_for('admin_reject_submission', submission_id=s.id) }}">
+            <input class="form-control form-control-sm mb-1" name="admin_note" placeholder="Lý do từ chối">
+            <button class="btn btn-sm btn-outline-danger w-100">Từ chối</button>
+          </form>
+          {% else %}
+          <span class="text-muted small">Không cần thao tác</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="text-center py-4 text-muted">Không có bài trong nhóm này.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

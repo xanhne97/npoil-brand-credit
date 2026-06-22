@@ -1,0 +1,63 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8">
+    <div class="card app-card">
+      <div class="card-body p-4">
+        <h3>Đăng ký tham gia chương trình</h3>
+        <p class="small-muted">Dành cho nhân viên, nhà phân phối và đại lý chính thức.</p>
+        <form method="post">
+          <div class="row">
+            <div class="col-md-6 mb-3">
+              <label class="form-label">Họ tên *</label>
+              <input class="form-control" name="name" required>
+            </div>
+            <div class="col-md-6 mb-3">
+              <label class="form-label">Email *</label>
+              <input type="email" class="form-control" name="email" required>
+            </div>
+            <div class="col-md-6 mb-3">
+              <label class="form-label">Mật khẩu *</label>
+              <input type="password" class="form-control" name="password" required>
+            </div>
+            <div class="col-md-6 mb-3">
+              <label class="form-label">Nhóm tham gia *</label>
+              <select class="form-select" name="group_type">
+                <option value="employee">Nhân viên công ty</option>
+                <option value="distributor">Nhà phân phối</option>
+                <option value="dealer">Đại lý</option>
+              </select>
+            </div>
+            <div class="col-md-4 mb-3">
+              <label class="form-label">Phòng ban</label>
+              <input class="form-control" name="department">
+            </div>
+            <div class="col-md-4 mb-3">
+              <label class="form-label">Tên NPP</label>
+              <input class="form-control" name="distributor_name">
+            </div>
+            <div class="col-md-4 mb-3">
+              <label class="form-label">Tên đại lý/cửa hàng</label>
+              <input class="form-control" name="dealer_name">
+            </div>
+            <div class="col-md-4 mb-3">
+              <label class="form-label">Số điện thoại</label>
+              <input class="form-control" name="phone">
+            </div>
+            <div class="col-md-4 mb-3">
+              <label class="form-label">Link Facebook</label>
+              <input class="form-control" name="facebook_url" placeholder="https://facebook.com/...">
+            </div>
+            <div class="col-md-4 mb-3">
+              <label class="form-label">Link TikTok</label>
+              <input class="form-control" name="tiktok_url" placeholder="https://tiktok.com/@...">
+            </div>
+          </div>
+          <button class="btn btn-warning">Tạo tài khoản</button>
+          <a class="btn btn-light" href="{{ url_for('login') }}">Quay lại đăng nhập</a>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

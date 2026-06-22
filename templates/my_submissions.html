@@ -1,0 +1,27 @@
+{% extends "layout.html" %}
+{% block content %}
+<h2>Bài đã gửi</h2>
+<div class="card app-card">
+  <div class="card-body p-0 table-responsive">
+    <table class="table table-hover mb-0">
+      <thead><tr><th>#</th><th>Nhiệm vụ</th><th>Link</th><th>Trạng thái</th><th>Ghi chú tự động</th><th>Điểm</th><th>Credit</th><th>Ngày gửi</th></tr></thead>
+      <tbody>
+      {% for s in submissions %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td>{{ s.mission_title }}<br><small class="text-muted">{{ s.mission_code }}</small></td>
+          <td><a href="{{ s.post_url }}" target="_blank">Mở</a></td>
+          <td><span class="badge text-bg-secondary">{{ s.status }}</span></td>
+          <td class="small">{{ s.auto_check_note or s.admin_note or '-' }}</td>
+          <td>{{ s.points_awarded }}</td>
+          <td>{{ s.credit_awarded }}</td>
+          <td>{{ s.created_at }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="8" class="text-center py-4 text-muted">Chưa có bài gửi.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

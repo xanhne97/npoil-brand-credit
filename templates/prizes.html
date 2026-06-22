@@ -1,0 +1,65 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h2 class="mb-0">Cơ cấu giải thưởng</h2>
+    <div class="small-muted">Tự xác định mức giải theo số lượng thành viên đăng ký hợp lệ.</div>
+  </div>
+  <a class="btn btn-warning" href="{{ url_for('leaderboard') }}">Xem bảng xếp hạng</a>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="card stat-card">
+      <div class="card-body">
+        <div class="small-muted">Thành viên đăng ký hợp lệ hiện tại</div>
+        <h3>{{ participant_count }}</h3>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-8">
+    <div class="alert alert-info mb-0">
+      Hệ thống đang tự động áp dụng mức giải theo số lượng người dùng active, không tính tài khoản admin.
+      Mức đang áp dụng được đánh dấu bằng nhãn <strong>Đang áp dụng</strong>.
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  {% for group in prize_groups %}
+  <div class="col-lg-4">
+    <div class="card app-card h-100 {% if group.key == current_tier %}border border-warning{% endif %}">
+      <div class="card-header bg-white d-flex justify-content-between align-items-center">
+        <strong>{{ group.condition }}</strong>
+        {% if group.key == current_tier %}
+          <span class="badge text-bg-warning">Đang áp dụng</span>
+        {% endif %}
+      </div>
+      <div class="card-body p-0 table-responsive">
+        <table class="table table-hover mb-0">
+          <thead>
+            <tr><th>Giải thưởng</th><th>Giá trị</th></tr>
+          </thead>
+          <tbody>
+            {% for prize in group.prizes %}
+            <tr>
+              <td>{{ prize.name }}</td>
+              <td><strong>{{ prize.value }}</strong></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="card app-card mt-4">
+  <div class="card-body">
+    <h5 class="mb-2">Giải đặc biệt cuối chương trình</h5>
+    <div><strong>{{ special_award.name }}</strong></div>
+    <div class="small-muted">{{ special_award.description }}</div>
+  </div>
+</div>
+{% endblock %}

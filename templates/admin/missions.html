@@ -1,0 +1,56 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="row g-3">
+  <div class="col-lg-4">
+    <div class="card app-card">
+      <div class="card-body p-4">
+        <h3>Tạo nhiệm vụ</h3>
+        <form method="post">
+          <div class="mb-3"><label class="form-label">Tên nhiệm vụ</label><input class="form-control" name="title" required></div>
+          <div class="mb-3"><label class="form-label">Mô tả</label><textarea class="form-control" name="description" rows="3"></textarea></div>
+          <div class="row">
+            <div class="col-md-6 mb-3"><label class="form-label">Nền tảng</label><select class="form-select" name="platform"><option value="both">Facebook & TikTok</option><option value="facebook">Facebook</option><option value="tiktok">TikTok</option></select></div>
+            <div class="col-md-6 mb-3"><label class="form-label">Loại</label><select class="form-select" name="mission_type"><option value="official_share">Chia sẻ bài chính thức</option><option value="self_post">Tự đăng bài</option><option value="video">Video</option><option value="follow_growth">Tăng follow/bạn bè</option></select></div>
+          </div>
+          <div class="mb-3"><label class="form-label">Link bài chính thức nếu có</label><input class="form-control" name="official_post_url"></div>
+          <div class="mb-3"><label class="form-label">Mã nhiệm vụ</label><input class="form-control" name="mission_code" required placeholder="NPOIL-T7-001"></div>
+          <div class="mb-3"><label class="form-label">Hashtag bắt buộc</label><textarea class="form-control" name="required_hashtags" rows="2">{{ default_hashtags }}</textarea></div>
+          <div class="row">
+            <div class="col-md-6 mb-3"><label class="form-label">Điểm cơ bản</label><input type="number" class="form-control" name="points_reward" value="10"></div>
+            <div class="col-md-6 mb-3"><label class="form-label">Credit cơ bản</label><input type="number" class="form-control" name="credit_reward" value="5"></div>
+            <div class="col-md-6 mb-3"><label class="form-label">Điểm cộng thêm tối đa</label><input type="number" class="form-control" name="max_extra_points" value="100"></div>
+            <div class="col-md-6 mb-3"><label class="form-label">Giới hạn bài/ngày</label><input type="number" class="form-control" name="max_per_day" value="2"></div>
+            <div class="col-md-6 mb-3"><label class="form-label">Ngày bắt đầu</label><input type="date" class="form-control" name="start_date"></div>
+            <div class="col-md-6 mb-3"><label class="form-label">Ngày kết thúc</label><input type="date" class="form-control" name="end_date" value="2026-12-31"></div>
+          </div>
+          <div class="form-check mb-3"><input class="form-check-input" type="checkbox" name="auto_approve" checked><label class="form-check-label">Tự động duyệt nếu đủ điều kiện</label></div>
+          <button class="btn btn-warning w-100">Tạo nhiệm vụ</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-8">
+    <div class="card app-card">
+      <div class="card-header bg-white"><strong>Danh sách nhiệm vụ</strong></div>
+      <div class="card-body p-0 table-responsive">
+        <table class="table table-hover mb-0">
+          <thead><tr><th>Tên</th><th>Mã</th><th>Nền tảng</th><th>Điểm/Credit</th><th>Thời gian</th><th>Trạng thái</th><th></th></tr></thead>
+          <tbody>
+          {% for m in missions %}
+            <tr>
+              <td><strong>{{ m.title }}</strong><br><small>{{ m.description }}</small></td>
+              <td><code>{{ m.mission_code }}</code></td>
+              <td>{{ m.platform }}</td>
+              <td>{{ m.points_reward }} / {{ m.credit_reward }}</td>
+              <td>{{ m.start_date or '-' }} → {{ m.end_date or '-' }}</td>
+              <td><span class="badge text-bg-secondary">{{ m.status }}</span></td>
+              <td><form method="post" action="{{ url_for('admin_toggle_mission', mission_id=m.id) }}"><button class="btn btn-sm btn-light">Bật/tắt</button></form></td>
+            </tr>
+          {% else %}<tr><td colspan="7" class="text-center py-4 text-muted">Chưa có nhiệm vụ.</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

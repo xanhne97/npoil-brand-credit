@@ -1,0 +1,47 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-9">
+    <div class="card app-card">
+      <div class="card-body p-4">
+        <h3>Gửi bài hoàn thành nhiệm vụ</h3>
+        <div class="alert alert-light border">
+          <strong>{{ mission.title }}</strong><br>
+          Mã nhiệm vụ: <code>{{ mission.mission_code }}</code><br>
+          Hashtag bắt buộc: <code>{{ mission.required_hashtags }}</code><br>
+          Điểm cơ bản: <strong>{{ mission.points_reward }}</strong> · Credit cơ bản: <strong>{{ mission.credit_reward }}</strong>
+        </div>
+        <form method="post" enctype="multipart/form-data">
+          <div class="mb-3">
+            <label class="form-label">Link bài Facebook/TikTok *</label>
+            <input class="form-control" name="post_url" required placeholder="Dán link bài đăng/share/video">
+            <div class="form-text">Nên để bài ở chế độ công khai để hệ thống dễ kiểm tra.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Nội dung/caption bài đăng *</label>
+            <textarea class="form-control" name="content_text" rows="5" required placeholder="Dán nội dung bài đăng. Cần có mã nhiệm vụ và hashtag bắt buộc."></textarea>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Ảnh/file minh chứng</label>
+            <input type="file" class="form-control" name="proof_file" accept=".png,.jpg,.jpeg,.webp,.pdf">
+            <div class="form-text">Không bắt buộc nếu link công khai và đủ dữ liệu, nhưng nên gửi để đối soát khi cần.</div>
+          </div>
+          <h5 class="mt-4">Chỉ số tương tác/follow nếu có</h5>
+          <div class="row">
+            <div class="col-md-3 mb-3"><label class="form-label">Like/Reaction</label><input type="number" min="0" class="form-control" name="like_count" value="0"></div>
+            <div class="col-md-3 mb-3"><label class="form-label">Comment</label><input type="number" min="0" class="form-control" name="comment_count" value="0"></div>
+            <div class="col-md-3 mb-3"><label class="form-label">Share lại</label><input type="number" min="0" class="form-control" name="share_count" value="0"></div>
+            <div class="col-md-3 mb-3"><label class="form-label">View video</label><input type="number" min="0" class="form-control" name="view_count" value="0"></div>
+            <div class="col-md-3 mb-3"><label class="form-label">Follow trước</label><input type="number" min="0" class="form-control" name="follower_before" value="0"></div>
+            <div class="col-md-3 mb-3"><label class="form-label">Follow sau</label><input type="number" min="0" class="form-control" name="follower_after" value="0"></div>
+            <div class="col-md-3 mb-3"><label class="form-label">Bạn bè trước</label><input type="number" min="0" class="form-control" name="friends_before" value="0"></div>
+            <div class="col-md-3 mb-3"><label class="form-label">Bạn bè sau</label><input type="number" min="0" class="form-control" name="friends_after" value="0"></div>
+          </div>
+          <button class="btn btn-warning">Gửi hệ thống kiểm tra</button>
+          <a class="btn btn-light" href="{{ url_for('missions') }}">Quay lại</a>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

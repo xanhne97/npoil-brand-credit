@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: npoil-brand-credit
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DEMO_MODE
+        value: "0"

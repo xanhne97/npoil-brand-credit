@@ -1,0 +1,27 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-5 col-lg-4">
+    <div class="card app-card">
+      <div class="card-body p-4">
+        <h3 class="mb-1">Đăng nhập</h3>
+        <p class="small-muted mb-4">Vào hệ thống thi đua truyền thông và tìm kiếm khách hàng.</p>
+        <form method="post">
+          <div class="mb-3">
+            <label class="form-label">Email</label>
+            <input type="email" class="form-control" name="email" required placeholder="email@npoil.vn">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Mật khẩu</label>
+            <input type="password" class="form-control" name="password" required>
+          </div>
+          <button class="btn btn-warning w-100">Đăng nhập</button>
+        </form>
+        <hr>
+        <p class="mb-0 small">Chưa có tài khoản? <a href="{{ url_for('register') }}">Đăng ký tham gia</a></p>
+        <p class="small-muted mt-3 mb-0">Admin mặc định nếu chưa đổi trong .env: admin@npoil.vn / Admin@123456</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

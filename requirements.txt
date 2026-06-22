@@ -1,0 +1,8 @@
+Flask==2.3.2
+gunicorn
+pandas
+openpyxl
+geopy
+google-search-results>=2.0.2
+python-dotenv
+Werkzeug
