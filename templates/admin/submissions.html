@@ -1,9 +1,13 @@
 {% extends "layout.html" %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <div><h2 class="mb-0">Duyệt bài gửi</h2><div class="small-muted">Hệ thống tự duyệt bài đủ điều kiện; admin chỉ xử lý bài pending/need_review.</div></div>
-  <div class="btn-group">
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+  <div>
+    <h2 class="mb-0">Duyệt bài gửi</h2>
+    <div class="small-muted">Hệ thống tự duyệt bài đủ điều kiện; admin xử lý ngoại lệ, từ chối hoặc yêu cầu bổ sung minh chứng.</div>
+  </div>
+  <div class="btn-group flex-wrap">
     <a class="btn btn-outline-secondary {% if status=='pending' %}active{% endif %}" href="{{ url_for('admin_submissions', status='pending') }}">Cần kiểm tra</a>
+    <a class="btn btn-outline-secondary {% if status=='need_more_proof' %}active{% endif %}" href="{{ url_for('admin_submissions', status='need_more_proof') }}">Chờ bổ sung</a>
     <a class="btn btn-outline-secondary {% if status=='auto_approved' %}active{% endif %}" href="{{ url_for('admin_submissions', status='auto_approved') }}">Tự duyệt</a>
     <a class="btn btn-outline-secondary {% if status=='approved' %}active{% endif %}" href="{{ url_for('admin_submissions', status='approved') }}">Admin duyệt</a>
     <a class="btn btn-outline-secondary {% if status=='rejected' %}active{% endif %}" href="{{ url_for('admin_submissions', status='rejected') }}">Từ chối</a>
@@ -27,16 +31,23 @@
           Like: {{ s.like_count }} · Comment: {{ s.comment_count }} · Share: {{ s.share_count }} · View: {{ s.view_count }}<br>
           Follow: {{ s.follower_before }} → {{ s.follower_after }} · Bạn bè: {{ s.friends_before }} → {{ s.friends_after }}
         </td>
-        <td class="small"><span class="badge text-bg-secondary">{{ s.status }}</span><br>{{ s.auto_check_note or s.admin_note or '-' }}<br>Điểm/Credit: {{ s.points_awarded }}/{{ s.credit_awarded }}</td>
-        <td style="min-width:260px">
-          {% if s.status in ['pending','need_review'] %}
+        <td class="small">
+          <span class="badge {% if s.status in ['approved','auto_approved'] %}text-bg-success{% elif s.status=='rejected' %}text-bg-danger{% elif s.status=='need_more_proof' %}text-bg-warning{% else %}text-bg-secondary{% endif %}">{{ s.status }}</span><br>
+          {{ s.auto_check_note or s.admin_note or '-' }}<br>Điểm/Credit: {{ s.points_awarded }}/{{ s.credit_awarded }}
+        </td>
+        <td style="min-width:280px">
+          {% if s.status in ['pending','need_review','need_more_proof'] %}
           <form method="post" action="{{ url_for('admin_approve_submission', submission_id=s.id) }}" class="mb-2">
             <div class="input-group input-group-sm mb-1">
               <input class="form-control" name="points_awarded" type="number" placeholder="Điểm">
               <input class="form-control" name="credit_awarded" type="number" placeholder="Credit">
             </div>
             <input class="form-control form-control-sm mb-1" name="admin_note" placeholder="Ghi chú duyệt">
-            <button class="btn btn-sm btn-success w-100">Duyệt</button>
+            <button class="btn btn-sm btn-success w-100">Duyệt & cộng điểm/credit</button>
+          </form>
+          <form method="post" action="{{ url_for('admin_need_proof_submission', submission_id=s.id) }}" class="mb-2">
+            <input class="form-control form-control-sm mb-1" name="admin_note" placeholder="Yêu cầu bổ sung minh chứng">
+            <button class="btn btn-sm btn-outline-warning w-100">Yêu cầu bổ sung</button>
           </form>
           <form method="post" action="{{ url_for('admin_reject_submission', submission_id=s.id) }}">
             <input class="form-control form-control-sm mb-1" name="admin_note" placeholder="Lý do từ chối">

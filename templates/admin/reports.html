@@ -1,16 +1,42 @@
 {% extends "layout.html" %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <div><h2 class="mb-0">Báo cáo thi đua</h2><div class="small-muted">Theo dõi điểm, bài hợp lệ, credit nhận và credit đã dùng.</div></div>
-  <div class="d-flex gap-2">
-    <form class="d-flex gap-2" method="get"><input class="form-control" name="month" value="{{ month }}" placeholder="YYYY-MM"><button class="btn btn-warning">Lọc</button></form>
-    <a class="btn btn-success" href="{{ url_for('admin_reports_download', month=month) }}">Tải Excel</a>
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+  <div>
+    <h2 class="mb-0">Báo cáo thi đua</h2>
+    <div class="small-muted">Theo dõi điểm, trạng thái bài, credit nhận/dùng và lượt tìm kiếm khách hàng.</div>
+  </div>
+  <a class="btn btn-success" href="{{ url_for('admin_reports_download', month=month, group_type=group_type, unit=unit) }}">Tải Excel</a>
+</div>
+
+<div class="card app-card mb-3">
+  <div class="card-body">
+    <form class="row g-2 align-items-end" method="get">
+      <div class="col-md-2"><label class="form-label">Tháng</label><input class="form-control" name="month" value="{{ month }}" placeholder="YYYY-MM"></div>
+      <div class="col-md-3">
+        <label class="form-label">Nhóm</label>
+        <select class="form-select" name="group_type">
+          <option value="all" {% if group_type=='all' %}selected{% endif %}>Tất cả</option>
+          <option value="employee" {% if group_type=='employee' %}selected{% endif %}>Nhân viên</option>
+          <option value="distributor" {% if group_type=='distributor' %}selected{% endif %}>Nhà phân phối</option>
+          <option value="dealer" {% if group_type=='dealer' %}selected{% endif %}>Đại lý</option>
+        </select>
+      </div>
+      <div class="col-md-5"><label class="form-label">Tìm đơn vị/người dùng</label><input class="form-control" name="unit" value="{{ unit }}" placeholder="Phòng ban, NPP, đại lý, tên, email"></div>
+      <div class="col-md-2"><button class="btn btn-warning w-100">Lọc</button></div>
+    </form>
   </div>
 </div>
+
 <div class="card app-card">
   <div class="card-body p-0 table-responsive">
     <table class="table table-hover mb-0">
-      <thead><tr><th>Hạng</th><th>Họ tên</th><th>Email</th><th>Nhóm</th><th>Đơn vị</th><th>Điểm</th><th>Bài hợp lệ</th><th>Credit nhận</th><th>Credit dùng</th><th>Số dư</th></tr></thead>
+      <thead>
+        <tr>
+          <th>Hạng</th><th>Họ tên</th><th>Email</th><th>Nhóm</th><th>Đơn vị</th>
+          <th>Điểm</th><th>Hợp lệ</th><th>Chờ</th><th>Từ chối</th>
+          <th>Credit nhận</th><th>Credit dùng</th><th>Tìm kiếm</th><th>Credit tìm kiếm</th><th>Số dư</th>
+        </tr>
+      </thead>
       <tbody>
       {% for r in rows %}
       <tr>
@@ -19,13 +45,17 @@
         <td>{{ r.email }}</td>
         <td>{{ r.group_type }}</td>
         <td>{{ r.department or r.distributor_name or r.dealer_name or '-' }}</td>
-        <td>{{ r.total_points }}</td>
+        <td><strong>{{ r.total_points }}</strong></td>
         <td>{{ r.valid_submissions }}</td>
+        <td>{{ r.pending_submissions }}</td>
+        <td>{{ r.rejected_submissions }}</td>
         <td>{{ r.credit_earned }}</td>
         <td>{{ r.credit_spent }}</td>
+        <td>{{ r.search_count }}</td>
+        <td>{{ r.search_credit_cost }}</td>
         <td>{{ r.credit_balance }}</td>
       </tr>
-      {% else %}<tr><td colspan="10" class="text-center py-4 text-muted">Chưa có dữ liệu.</td></tr>{% endfor %}
+      {% else %}<tr><td colspan="14" class="text-center py-4 text-muted">Chưa có dữ liệu.</td></tr>{% endfor %}
       </tbody>
     </table>
   </div>

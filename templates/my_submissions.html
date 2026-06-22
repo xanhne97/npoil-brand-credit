@@ -4,21 +4,34 @@
 <div class="card app-card">
   <div class="card-body p-0 table-responsive">
     <table class="table table-hover mb-0">
-      <thead><tr><th>#</th><th>Nhiệm vụ</th><th>Link</th><th>Trạng thái</th><th>Ghi chú tự động</th><th>Điểm</th><th>Credit</th><th>Ngày gửi</th></tr></thead>
+      <thead><tr><th>#</th><th>Nhiệm vụ</th><th>Link/Minh chứng</th><th>Trạng thái</th><th>Ghi chú</th><th>Điểm</th><th>Credit</th><th>Ngày gửi</th><th>Bổ sung</th></tr></thead>
       <tbody>
       {% for s in submissions %}
         <tr>
           <td>{{ loop.index }}</td>
           <td>{{ s.mission_title }}<br><small class="text-muted">{{ s.mission_code }}</small></td>
-          <td><a href="{{ s.post_url }}" target="_blank">Mở</a></td>
-          <td><span class="badge text-bg-secondary">{{ s.status }}</span></td>
-          <td class="small">{{ s.auto_check_note or s.admin_note or '-' }}</td>
+          <td>
+            <a href="{{ s.post_url }}" target="_blank">Mở bài</a>
+            {% if s.proof_file %}<br><a href="{{ url_for('static', filename=s.proof_file) }}" target="_blank">Mở minh chứng</a>{% endif %}
+          </td>
+          <td><span class="badge {% if s.status in ['approved','auto_approved'] %}text-bg-success{% elif s.status=='rejected' %}text-bg-danger{% elif s.status=='need_more_proof' %}text-bg-warning{% else %}text-bg-secondary{% endif %}">{{ s.status }}</span></td>
+          <td class="small">{{ s.admin_note or s.auto_check_note or '-' }}</td>
           <td>{{ s.points_awarded }}</td>
           <td>{{ s.credit_awarded }}</td>
           <td>{{ s.created_at }}</td>
+          <td style="min-width:220px">
+            {% if s.status == 'need_more_proof' %}
+            <form method="post" enctype="multipart/form-data" action="{{ url_for('update_submission_proof', submission_id=s.id) }}">
+              <input class="form-control form-control-sm mb-1" type="file" name="proof_file" required>
+              <button class="btn btn-sm btn-warning w-100">Gửi lại minh chứng</button>
+            </form>
+            {% else %}
+            <span class="text-muted small">-</span>
+            {% endif %}
+          </td>
         </tr>
       {% else %}
-        <tr><td colspan="8" class="text-center py-4 text-muted">Chưa có bài gửi.</td></tr>
+        <tr><td colspan="9" class="text-center py-4 text-muted">Chưa có bài gửi.</td></tr>
       {% endfor %}
       </tbody>
     </table>

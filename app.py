@@ -43,6 +43,19 @@ SEARCH_CREDIT_PER_KEYWORD = 5
 EXPORT_EXCEL_CREDIT = 10
 ALLOWED_UPLOAD_EXT = {"png", "jpg", "jpeg", "webp", "pdf"}
 
+DEFAULT_SETTINGS = {
+    "search_credit_per_keyword": {"value": "5", "label": "Credit trừ cho mỗi từ khóa tìm kiếm"},
+    "export_excel_credit": {"value": "10", "label": "Credit trừ khi xuất Excel"},
+    "like_points_divisor": {"value": "5", "label": "Bao nhiêu like/reaction được cộng 1 điểm"},
+    "comment_points": {"value": "1", "label": "Điểm cộng cho mỗi comment hợp lệ"},
+    "share_points": {"value": "2", "label": "Điểm cộng cho mỗi lượt share lại"},
+    "view_step": {"value": "500", "label": "Mốc view để cộng điểm"},
+    "view_step_points": {"value": "5", "label": "Điểm cộng cho mỗi mốc view"},
+    "follower_points": {"value": "1", "label": "Điểm cộng cho mỗi follow TikTok tăng"},
+    "friends_points_divisor": {"value": "2", "label": "Bao nhiêu bạn bè Facebook tăng được cộng 1 điểm"},
+    "extra_credit_divisor": {"value": "5", "label": "Bao nhiêu điểm cộng thêm được quy đổi 1 credit"},
+}
+
 
 class PostgresConnection:
     """Small wrapper so the app can use the same conn.execute(...) style with PostgreSQL."""
@@ -82,6 +95,73 @@ def db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def get_inserted_id(cursor):
+    """Return inserted id for SQLite or PostgreSQL queries that use RETURNING id."""
+    try:
+        row = cursor.fetchone()
+        if row:
+            try:
+                return row["id"]
+            except Exception:
+                return row[0]
+    except Exception:
+        pass
+    return getattr(cursor, "lastrowid", None)
+
+
+def seed_default_settings(conn):
+    for setting_key, meta in DEFAULT_SETTINGS.items():
+        existing = conn.execute(
+            "SELECT setting_key FROM app_settings WHERE setting_key=?",
+            (setting_key,),
+        ).fetchone()
+        if not existing:
+            conn.execute(
+                """
+                INSERT INTO app_settings (setting_key, setting_value, label, updated_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (setting_key, meta["value"], meta["label"], now_text()),
+            )
+
+
+def get_app_settings(conn):
+    settings = {key: meta["value"] for key, meta in DEFAULT_SETTINGS.items()}
+    try:
+        rows = conn.execute("SELECT setting_key, setting_value FROM app_settings").fetchall()
+        for row in rows:
+            settings[row["setting_key"]] = row["setting_value"]
+    except Exception:
+        pass
+    return settings
+
+
+def setting_int(settings, key, default=0):
+    try:
+        return int(float(settings.get(key, default)))
+    except (ValueError, TypeError, AttributeError):
+        return default
+
+
+def user_filter_sql(group_type, unit_keyword):
+    where = ["u.is_admin=0"]
+    params = []
+    if group_type and group_type != "all":
+        where.append("u.group_type=?")
+        params.append(group_type)
+    if unit_keyword:
+        like = f"%{unit_keyword.lower()}%"
+        where.append(
+            "(LOWER(COALESCE(u.department,'')) LIKE ? OR "
+            "LOWER(COALESCE(u.distributor_name,'')) LIKE ? OR "
+            "LOWER(COALESCE(u.dealer_name,'')) LIKE ? OR "
+            "LOWER(COALESCE(u.name,'')) LIKE ? OR "
+            "LOWER(COALESCE(u.email,'')) LIKE ?)"
+        )
+        params.extend([like, like, like, like, like])
+    return " AND ".join(where), params
 
 
 def now_text():
@@ -307,6 +387,13 @@ def init_db():
                 results_json TEXT,
                 created_at TEXT NOT NULL
             );
+            
+            CREATE TABLE IF NOT EXISTS app_settings (
+                setting_key TEXT PRIMARY KEY,
+                setting_value TEXT NOT NULL,
+                label TEXT,
+                updated_at TEXT NOT NULL
+            );
             """
 
     postgres_schema = """
@@ -406,10 +493,18 @@ def init_db():
                 results_json TEXT,
                 created_at TEXT NOT NULL
             );
+            
+            CREATE TABLE IF NOT EXISTS app_settings (
+                setting_key TEXT PRIMARY KEY,
+                setting_value TEXT NOT NULL,
+                label TEXT,
+                updated_at TEXT NOT NULL
+            );
             """
 
     with db() as conn:
         conn.executescript(postgres_schema if USE_POSTGRES else sqlite_schema)
+        seed_default_settings(conn)
 
         admin_email = os.getenv("ADMIN_EMAIL", "admin@npoil.vn").strip().lower()
         admin_password = os.getenv("ADMIN_PASSWORD", "Admin@123456")
@@ -492,7 +587,9 @@ def add_points(conn, user_id, submission_id, points, reason):
     )
 
 
-def calculate_submission_score(mission, form_values):
+def calculate_submission_score(mission, form_values, settings=None):
+    settings = settings or {key: meta["value"] for key, meta in DEFAULT_SETTINGS.items()}
+
     base_points = int(mission["points_reward"] or 0)
     base_credit = int(mission["credit_reward"] or 0)
 
@@ -503,17 +600,26 @@ def calculate_submission_score(mission, form_values):
     follower_growth = max(0, form_values["follower_after"] - form_values["follower_before"])
     friends_growth = max(0, form_values["friends_after"] - form_values["friends_before"])
 
+    like_divisor = max(1, setting_int(settings, "like_points_divisor", 5))
+    comment_points = setting_int(settings, "comment_points", 1)
+    share_points = setting_int(settings, "share_points", 2)
+    view_step = max(1, setting_int(settings, "view_step", 500))
+    view_step_points = setting_int(settings, "view_step_points", 5)
+    follower_points = setting_int(settings, "follower_points", 1)
+    friends_divisor = max(1, setting_int(settings, "friends_points_divisor", 2))
+    extra_credit_divisor = max(1, setting_int(settings, "extra_credit_divisor", 5))
+
     extra = 0
-    extra += like_count // 5                  # 1 điểm / 5 like
-    extra += comment_count                    # 1 điểm / comment
-    extra += share_count * 2                  # 2 điểm / share lại
-    extra += (view_count // 500) * 5          # 5 điểm / 500 view
-    extra += follower_growth                  # 1 điểm / follow tăng
-    extra += friends_growth // 2              # 1 điểm / 2 bạn bè tăng
+    extra += like_count // like_divisor
+    extra += comment_count * comment_points
+    extra += share_count * share_points
+    extra += (view_count // view_step) * view_step_points
+    extra += follower_growth * follower_points
+    extra += friends_growth // friends_divisor
     extra = min(extra, int(mission["max_extra_points"] or 100))
 
     points = base_points + extra
-    credit = base_credit + max(0, extra // 5)
+    credit = base_credit + max(0, extra // extra_credit_divisor)
     return points, credit
 
 
@@ -748,19 +854,23 @@ def submit_mission(mission_id):
             status, note = auto_check_submission(conn, user["id"], mission, post_url, content_text)
             points, credit = (0, 0)
             approved_at = None
+            settings = get_app_settings(conn)
             if status == "auto_approved":
-                points, credit = calculate_submission_score(mission, form_values)
+                points, credit = calculate_submission_score(mission, form_values, settings)
                 approved_at = now_text()
 
-            cur = conn.execute(
-                """
+            insert_sql = """
                 INSERT INTO submissions
                 (user_id, mission_id, post_url, content_text, proof_file, platform,
                  like_count, comment_count, share_count, view_count,
                  follower_before, follower_after, friends_before, friends_after,
                  status, auto_check_note, points_awarded, credit_awarded, created_at, approved_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
+            """
+            if USE_POSTGRES:
+                insert_sql += " RETURNING id"
+            cur = conn.execute(
+                insert_sql,
                 (
                     user["id"], mission_id, post_url, content_text, proof_file, mission["platform"],
                     form_values["like_count"], form_values["comment_count"], form_values["share_count"], form_values["view_count"],
@@ -768,7 +878,7 @@ def submit_mission(mission_id):
                     status, note, points, credit, now_text(), approved_at,
                 ),
             )
-            submission_id = cur.lastrowid
+            submission_id = get_inserted_id(cur)
             if status == "auto_approved":
                 add_points(conn, user["id"], submission_id, points, f"Hoàn thành nhiệm vụ: {mission['title']}")
                 add_credit(conn, user["id"], credit, "earn", f"Credit từ nhiệm vụ: {mission['title']}")
@@ -835,8 +945,10 @@ def search():
             flash("Mỗi lần tìm tối đa 20 từ khóa để tránh tốn quota API.", "danger")
             return render_template("search.html", data=data)
 
-        credit_cost = len(keywords) * SEARCH_CREDIT_PER_KEYWORD
         with db() as conn:
+            settings = get_app_settings(conn)
+            search_credit_per_keyword = setting_int(settings, "search_credit_per_keyword", SEARCH_CREDIT_PER_KEYWORD)
+            credit_cost = len(keywords) * search_credit_per_keyword
             fresh_user = conn.execute("SELECT * FROM users WHERE id=?", (user["id"],)).fetchone()
             if fresh_user["credit_balance"] < credit_cost:
                 flash(f"Không đủ credit. Cần {credit_cost} credit, hiện có {fresh_user['credit_balance']} credit.", "danger")
@@ -844,23 +956,28 @@ def search():
 
             data = scrape_from_keywords(keywords, center_coords=(lat, lng), radius_m=radius_m or None)
             add_credit(conn, user["id"], -credit_cost, "spend", f"Tìm kiếm Google Maps: {len(keywords)} từ khóa")
-            cur = conn.execute(
-                """
+            insert_sql = """
                 INSERT INTO search_logs
                 (user_id, keywords, latitude, longitude, radius_m, result_count, credit_cost, results_json, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
+            """
+            if USE_POSTGRES:
+                insert_sql += " RETURNING id"
+            cur = conn.execute(
+                insert_sql,
                 (
                     user["id"], "\n".join(keywords), lat, lng, radius_m, len(data), credit_cost,
                     json.dumps(data, ensure_ascii=False), now_text(),
                 ),
             )
-            log_id = cur.lastrowid
+            log_id = get_inserted_id(cur)
         flash(f"Đã tìm kiếm xong. Trừ {credit_cost} credit.", "success")
 
+    with db() as conn:
+        settings = get_app_settings(conn)
     return render_template("search.html", data=data, log_id=log_id,
-                           search_credit_per_keyword=SEARCH_CREDIT_PER_KEYWORD,
-                           export_excel_credit=EXPORT_EXCEL_CREDIT)
+                           search_credit_per_keyword=setting_int(settings, "search_credit_per_keyword", SEARCH_CREDIT_PER_KEYWORD),
+                           export_excel_credit=setting_int(settings, "export_excel_credit", EXPORT_EXCEL_CREDIT))
 
 
 @app.route("/search/download/<int:log_id>")
@@ -871,12 +988,14 @@ def download_search(log_id):
         log = conn.execute("SELECT * FROM search_logs WHERE id=? AND user_id=?", (log_id, user["id"])).fetchone()
         if not log:
             abort(404)
+        settings = get_app_settings(conn)
+        export_excel_credit = setting_int(settings, "export_excel_credit", EXPORT_EXCEL_CREDIT)
         if not int(log["export_charged"] or 0):
             fresh_user = conn.execute("SELECT * FROM users WHERE id=?", (user["id"],)).fetchone()
-            if fresh_user["credit_balance"] < EXPORT_EXCEL_CREDIT:
-                flash(f"Không đủ credit để xuất Excel. Cần {EXPORT_EXCEL_CREDIT} credit.", "danger")
+            if fresh_user["credit_balance"] < export_excel_credit:
+                flash(f"Không đủ credit để xuất Excel. Cần {export_excel_credit} credit.", "danger")
                 return redirect(url_for("search"))
-            add_credit(conn, user["id"], -EXPORT_EXCEL_CREDIT, "spend", "Xuất Excel kết quả tìm kiếm")
+            add_credit(conn, user["id"], -export_excel_credit, "spend", "Xuất Excel kết quả tìm kiếm")
             conn.execute("UPDATE search_logs SET export_charged=1 WHERE id=?", (log_id,))
 
         data = json.loads(log["results_json"] or "[]")
@@ -897,25 +1016,49 @@ def download_search(log_id):
 @app.route("/leaderboard")
 @login_required
 def leaderboard():
-    month = request.args.get("month", current_month())
+    month = request.args.get("month", current_month()).strip() or current_month()
+    group_type = request.args.get("group_type", "all").strip() or "all"
+    unit = request.args.get("unit", "").strip()
+    where_sql, filter_params = user_filter_sql(group_type, unit)
+
     with db() as conn:
         rows = conn.execute(
-            """
+            f"""
             SELECT u.id, u.name, u.group_type, u.department, u.distributor_name, u.dealer_name,
-                   COALESCE(SUM(p.points),0) AS total_points,
-                   COUNT(DISTINCT s.id) AS valid_posts,
+                   COALESCE(pt.total_points,0) AS total_points,
+                   COALESCE(st.valid_posts,0) AS valid_posts,
+                   COALESCE(st.total_likes,0) AS total_likes,
+                   COALESCE(st.total_comments,0) AS total_comments,
+                   COALESCE(st.total_shares,0) AS total_shares,
+                   COALESCE(st.follower_growth,0) AS follower_growth,
+                   COALESCE(st.friends_growth,0) AS friends_growth,
                    u.credit_balance
             FROM users u
-            LEFT JOIN point_transactions p ON p.user_id=u.id AND p.month_key=?
-            LEFT JOIN submissions s ON s.user_id=u.id AND s.status IN ('auto_approved','approved')
-            WHERE u.is_admin=0
-            GROUP BY u.id
-            ORDER BY total_points DESC, valid_posts DESC
+            LEFT JOIN (
+                SELECT user_id, SUM(points) AS total_points
+                FROM point_transactions
+                WHERE month_key=?
+                GROUP BY user_id
+            ) pt ON pt.user_id=u.id
+            LEFT JOIN (
+                SELECT user_id, COUNT(*) AS valid_posts,
+                       SUM(like_count) AS total_likes,
+                       SUM(comment_count) AS total_comments,
+                       SUM(share_count) AS total_shares,
+                       SUM(CASE WHEN follower_after > follower_before THEN follower_after - follower_before ELSE 0 END) AS follower_growth,
+                       SUM(CASE WHEN friends_after > friends_before THEN friends_after - friends_before ELSE 0 END) AS friends_growth
+                FROM submissions
+                WHERE status IN ('auto_approved','approved')
+                  AND substr(COALESCE(approved_at, created_at),1,7)=?
+                GROUP BY user_id
+            ) st ON st.user_id=u.id
+            WHERE {where_sql}
+            ORDER BY total_points DESC, valid_posts DESC, total_shares DESC, total_likes DESC
             LIMIT 100
             """,
-            (month,),
+            (month, month, *filter_params),
         ).fetchall()
-    return render_template("leaderboard.html", rows=rows, month=month)
+    return render_template("leaderboard.html", rows=rows, month=month, group_type=group_type, unit=unit)
 
 
 @app.route("/prizes")
@@ -1153,7 +1296,8 @@ def admin_approve_submission(submission_id):
                 "friends_before": sub["friends_before"],
                 "friends_after": sub["friends_after"],
             }
-            points, credit = calculate_submission_score(mission_like, form_values)
+            settings = get_app_settings(conn)
+            points, credit = calculate_submission_score(mission_like, form_values, settings)
 
         conn.execute(
             """
@@ -1183,55 +1327,173 @@ def admin_reject_submission(submission_id):
     return redirect(url_for("admin_submissions"))
 
 
+@app.route("/admin/submissions/<int:submission_id>/need-proof", methods=["POST"])
+@login_required
+@admin_required
+def admin_need_proof_submission(submission_id):
+    admin_note = request.form.get("admin_note", "Vui lòng bổ sung minh chứng rõ hơn.").strip()
+    with db() as conn:
+        conn.execute(
+            "UPDATE submissions SET status='need_more_proof', admin_note=? WHERE id=?",
+            (admin_note, submission_id),
+        )
+    flash("Đã yêu cầu người dùng bổ sung minh chứng.", "warning")
+    return redirect(url_for("admin_submissions", status="need_more_proof"))
+
+
+@app.route("/submissions/<int:submission_id>/update-proof", methods=["POST"])
+@login_required
+def update_submission_proof(submission_id):
+    user = current_user()
+    try:
+        proof_file = save_upload(request.files.get("proof_file"))
+    except ValueError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("my_submissions"))
+    if not proof_file:
+        flash("Vui lòng chọn file minh chứng để bổ sung.", "danger")
+        return redirect(url_for("my_submissions"))
+
+    with db() as conn:
+        sub = conn.execute(
+            "SELECT * FROM submissions WHERE id=? AND user_id=?",
+            (submission_id, user["id"]),
+        ).fetchone()
+        if not sub:
+            abort(404)
+        if sub["status"] != "need_more_proof":
+            flash("Bài này không ở trạng thái cần bổ sung minh chứng.", "warning")
+            return redirect(url_for("my_submissions"))
+        conn.execute(
+            """
+            UPDATE submissions
+            SET proof_file=?, status='need_review', auto_check_note=?, admin_note=NULL
+            WHERE id=?
+            """,
+            (proof_file, "Người dùng đã bổ sung minh chứng, chờ admin kiểm tra lại.", submission_id),
+        )
+    flash("Đã bổ sung minh chứng. Bài được chuyển lại cho admin kiểm tra.", "success")
+    return redirect(url_for("my_submissions"))
+
+
 @app.route("/admin/reports")
 @login_required
 @admin_required
 def admin_reports():
-    month = request.args.get("month", current_month())
+    month = request.args.get("month", current_month()).strip() or current_month()
+    group_type = request.args.get("group_type", "all").strip() or "all"
+    unit = request.args.get("unit", "").strip()
+    where_sql, filter_params = user_filter_sql(group_type, unit)
+
     with db() as conn:
         rows = conn.execute(
-            """
+            f"""
             SELECT u.name, u.email, u.group_type, u.department, u.distributor_name, u.dealer_name,
-                   COALESCE(SUM(p.points),0) AS total_points,
-                   COUNT(DISTINCT CASE WHEN s.status IN ('approved','auto_approved') THEN s.id END) AS valid_submissions,
-                   COALESCE(SUM(CASE WHEN c.amount > 0 THEN c.amount ELSE 0 END),0) AS credit_earned,
-                   ABS(COALESCE(SUM(CASE WHEN c.amount < 0 THEN c.amount ELSE 0 END),0)) AS credit_spent,
+                   COALESCE(pt.total_points,0) AS total_points,
+                   COALESCE(st.valid_submissions,0) AS valid_submissions,
+                   COALESCE(st.pending_submissions,0) AS pending_submissions,
+                   COALESCE(st.rejected_submissions,0) AS rejected_submissions,
+                   COALESCE(ct.credit_earned,0) AS credit_earned,
+                   COALESCE(ct.credit_spent,0) AS credit_spent,
+                   COALESCE(sl.search_count,0) AS search_count,
+                   COALESCE(sl.search_credit_cost,0) AS search_credit_cost,
                    u.credit_balance
             FROM users u
-            LEFT JOIN point_transactions p ON p.user_id=u.id AND p.month_key=?
-            LEFT JOIN submissions s ON s.user_id=u.id
-            LEFT JOIN credit_transactions c ON c.user_id=u.id AND substr(c.created_at,1,7)=?
-            WHERE u.is_admin=0
-            GROUP BY u.id
-            ORDER BY total_points DESC
+            LEFT JOIN (
+                SELECT user_id, SUM(points) AS total_points
+                FROM point_transactions
+                WHERE month_key=?
+                GROUP BY user_id
+            ) pt ON pt.user_id=u.id
+            LEFT JOIN (
+                SELECT user_id,
+                       SUM(CASE WHEN status IN ('approved','auto_approved') THEN 1 ELSE 0 END) AS valid_submissions,
+                       SUM(CASE WHEN status IN ('pending','need_review','need_more_proof') THEN 1 ELSE 0 END) AS pending_submissions,
+                       SUM(CASE WHEN status='rejected' THEN 1 ELSE 0 END) AS rejected_submissions
+                FROM submissions
+                WHERE substr(created_at,1,7)=?
+                GROUP BY user_id
+            ) st ON st.user_id=u.id
+            LEFT JOIN (
+                SELECT user_id,
+                       SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) AS credit_earned,
+                       ABS(SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END)) AS credit_spent
+                FROM credit_transactions
+                WHERE substr(created_at,1,7)=?
+                GROUP BY user_id
+            ) ct ON ct.user_id=u.id
+            LEFT JOIN (
+                SELECT user_id, COUNT(*) AS search_count, SUM(credit_cost) AS search_credit_cost
+                FROM search_logs
+                WHERE substr(created_at,1,7)=?
+                GROUP BY user_id
+            ) sl ON sl.user_id=u.id
+            WHERE {where_sql}
+            ORDER BY total_points DESC, valid_submissions DESC
             """,
-            (month, month),
+            (month, month, month, month, *filter_params),
         ).fetchall()
-    return render_template("admin/reports.html", rows=rows, month=month)
+    return render_template("admin/reports.html", rows=rows, month=month, group_type=group_type, unit=unit)
 
 
 @app.route("/admin/reports/download")
 @login_required
 @admin_required
 def admin_reports_download():
-    month = request.args.get("month", current_month())
+    month = request.args.get("month", current_month()).strip() or current_month()
+    group_type = request.args.get("group_type", "all").strip() or "all"
+    unit = request.args.get("unit", "").strip()
+    where_sql, filter_params = user_filter_sql(group_type, unit)
+
     with db() as conn:
         rows = conn.execute(
-            """
-            SELECT u.name AS 'Họ tên', u.email AS 'Email', u.group_type AS 'Nhóm',
-                   u.department AS 'Phòng ban', u.distributor_name AS 'Nhà phân phối',
-                   u.dealer_name AS 'Đại lý',
-                   COALESCE(SUM(p.points),0) AS 'Tổng điểm',
-                   COUNT(DISTINCT CASE WHEN s.status IN ('approved','auto_approved') THEN s.id END) AS 'Bài hợp lệ',
-                   u.credit_balance AS 'Credit hiện có'
+            f"""
+            SELECT u.name AS "Họ tên", u.email AS "Email", u.group_type AS "Nhóm",
+                   u.department AS "Phòng ban", u.distributor_name AS "Nhà phân phối",
+                   u.dealer_name AS "Đại lý",
+                   COALESCE(pt.total_points,0) AS "Tổng điểm",
+                   COALESCE(st.valid_submissions,0) AS "Bài hợp lệ",
+                   COALESCE(st.pending_submissions,0) AS "Bài chờ kiểm tra",
+                   COALESCE(st.rejected_submissions,0) AS "Bài bị từ chối",
+                   COALESCE(ct.credit_earned,0) AS "Credit nhận",
+                   COALESCE(ct.credit_spent,0) AS "Credit đã dùng",
+                   COALESCE(sl.search_count,0) AS "Số lượt tìm kiếm",
+                   COALESCE(sl.search_credit_cost,0) AS "Credit tìm kiếm",
+                   u.credit_balance AS "Credit hiện có"
             FROM users u
-            LEFT JOIN point_transactions p ON p.user_id=u.id AND p.month_key=?
-            LEFT JOIN submissions s ON s.user_id=u.id
-            WHERE u.is_admin=0
-            GROUP BY u.id
-            ORDER BY 'Tổng điểm' DESC
+            LEFT JOIN (
+                SELECT user_id, SUM(points) AS total_points
+                FROM point_transactions
+                WHERE month_key=?
+                GROUP BY user_id
+            ) pt ON pt.user_id=u.id
+            LEFT JOIN (
+                SELECT user_id,
+                       SUM(CASE WHEN status IN ('approved','auto_approved') THEN 1 ELSE 0 END) AS valid_submissions,
+                       SUM(CASE WHEN status IN ('pending','need_review','need_more_proof') THEN 1 ELSE 0 END) AS pending_submissions,
+                       SUM(CASE WHEN status='rejected' THEN 1 ELSE 0 END) AS rejected_submissions
+                FROM submissions
+                WHERE substr(created_at,1,7)=?
+                GROUP BY user_id
+            ) st ON st.user_id=u.id
+            LEFT JOIN (
+                SELECT user_id,
+                       SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) AS credit_earned,
+                       ABS(SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END)) AS credit_spent
+                FROM credit_transactions
+                WHERE substr(created_at,1,7)=?
+                GROUP BY user_id
+            ) ct ON ct.user_id=u.id
+            LEFT JOIN (
+                SELECT user_id, COUNT(*) AS search_count, SUM(credit_cost) AS search_credit_cost
+                FROM search_logs
+                WHERE substr(created_at,1,7)=?
+                GROUP BY user_id
+            ) sl ON sl.user_id=u.id
+            WHERE {where_sql}
+            ORDER BY "Tổng điểm" DESC, "Bài hợp lệ" DESC
             """,
-            (month,),
+            (month, month, month, month, *filter_params),
         ).fetchall()
     df = pd.DataFrame([dict(r) for r in rows])
     output = io.BytesIO()
@@ -1244,6 +1506,36 @@ def admin_reports_download():
         download_name=f"bao_cao_thi_dua_npoil_{month}.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+
+
+@app.route("/admin/scoring", methods=["GET", "POST"])
+@login_required
+@admin_required
+def admin_scoring():
+    if request.method == "POST":
+        with db() as conn:
+            for setting_key in DEFAULT_SETTINGS:
+                value = request.form.get(setting_key, DEFAULT_SETTINGS[setting_key]["value"]).strip()
+                if value == "":
+                    value = DEFAULT_SETTINGS[setting_key]["value"]
+                conn.execute(
+                    """
+                    UPDATE app_settings
+                    SET setting_value=?, updated_at=?
+                    WHERE setting_key=?
+                    """,
+                    (value, now_text(), setting_key),
+                )
+        flash("Đã cập nhật cấu hình điểm/credit.", "success")
+        return redirect(url_for("admin_scoring"))
+
+    with db() as conn:
+        settings = get_app_settings(conn)
+    setting_rows = [
+        {"key": key, "label": meta["label"], "value": settings.get(key, meta["value"]), "default": meta["value"]}
+        for key, meta in DEFAULT_SETTINGS.items()
+    ]
+    return render_template("admin/scoring.html", setting_rows=setting_rows)
 
 
 init_db()
