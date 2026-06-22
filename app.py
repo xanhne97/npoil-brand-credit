@@ -2,6 +2,12 @@ import io
 import json
 import os
 import sqlite3
+try:
+    import psycopg2
+    import psycopg2.extras
+except ImportError:
+    psycopg2 = None
+
 import uuid
 from datetime import datetime, date
 from functools import wraps
@@ -23,6 +29,8 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "npoil_brand_credit.db"
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+USE_POSTGRES = DATABASE_URL.startswith(("postgres://", "postgresql://"))
 UPLOAD_DIR = BASE_DIR / "static" / "uploads" / "proofs"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -36,7 +44,41 @@ EXPORT_EXCEL_CREDIT = 10
 ALLOWED_UPLOAD_EXT = {"png", "jpg", "jpeg", "webp", "pdf"}
 
 
+class PostgresConnection:
+    """Small wrapper so the app can use the same conn.execute(...) style with PostgreSQL."""
+
+    def __init__(self):
+        if psycopg2 is None:
+            raise RuntimeError("Thiếu psycopg2-binary. Hãy cài: pip install psycopg2-binary")
+        db_url = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+        self.conn = psycopg2.connect(db_url)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if exc_type:
+            self.conn.rollback()
+        else:
+            self.conn.commit()
+        self.conn.close()
+
+    def execute(self, query, params=None):
+        # SQLite uses ? placeholders; psycopg2 uses %s placeholders.
+        query = query.replace("?", "%s")
+        cur = self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(query, params or ())
+        return cur
+
+    def executescript(self, script):
+        cur = self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(script)
+        return cur
+
+
 def db():
+    if USE_POSTGRES:
+        return PostgresConnection()
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
@@ -166,9 +208,7 @@ def admin_required(fn):
 
 
 def init_db():
-    with db() as conn:
-        conn.executescript(
-            """
+    sqlite_schema = """
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
@@ -268,7 +308,108 @@ def init_db():
                 created_at TEXT NOT NULL
             );
             """
-        )
+
+    postgres_schema = """
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL,
+                email TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                group_type TEXT NOT NULL DEFAULT 'employee',
+                department TEXT,
+                distributor_name TEXT,
+                dealer_name TEXT,
+                phone TEXT,
+                facebook_url TEXT,
+                tiktok_url TEXT,
+                credit_balance INTEGER NOT NULL DEFAULT 0,
+                is_admin INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'active',
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS missions (
+                id SERIAL PRIMARY KEY,
+                title TEXT NOT NULL,
+                description TEXT,
+                platform TEXT NOT NULL DEFAULT 'facebook',
+                mission_type TEXT NOT NULL DEFAULT 'official_share',
+                official_post_url TEXT,
+                mission_code TEXT NOT NULL,
+                required_hashtags TEXT,
+                points_reward INTEGER NOT NULL DEFAULT 0,
+                credit_reward INTEGER NOT NULL DEFAULT 0,
+                max_extra_points INTEGER NOT NULL DEFAULT 100,
+                max_per_day INTEGER NOT NULL DEFAULT 2,
+                start_date TEXT,
+                end_date TEXT,
+                auto_approve INTEGER NOT NULL DEFAULT 1,
+                status TEXT NOT NULL DEFAULT 'active',
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS submissions (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                mission_id INTEGER NOT NULL REFERENCES missions(id),
+                post_url TEXT NOT NULL,
+                content_text TEXT,
+                proof_file TEXT,
+                platform TEXT,
+                like_count INTEGER NOT NULL DEFAULT 0,
+                comment_count INTEGER NOT NULL DEFAULT 0,
+                share_count INTEGER NOT NULL DEFAULT 0,
+                view_count INTEGER NOT NULL DEFAULT 0,
+                follower_before INTEGER NOT NULL DEFAULT 0,
+                follower_after INTEGER NOT NULL DEFAULT 0,
+                friends_before INTEGER NOT NULL DEFAULT 0,
+                friends_after INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'pending',
+                auto_check_note TEXT,
+                points_awarded INTEGER NOT NULL DEFAULT 0,
+                credit_awarded INTEGER NOT NULL DEFAULT 0,
+                admin_note TEXT,
+                created_at TEXT NOT NULL,
+                approved_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS point_transactions (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                submission_id INTEGER,
+                points INTEGER NOT NULL,
+                reason TEXT,
+                month_key TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS credit_transactions (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                amount INTEGER NOT NULL,
+                transaction_type TEXT NOT NULL,
+                reason TEXT,
+                balance_after INTEGER NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS search_logs (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                keywords TEXT NOT NULL,
+                latitude DOUBLE PRECISION NOT NULL,
+                longitude DOUBLE PRECISION NOT NULL,
+                radius_m INTEGER,
+                result_count INTEGER NOT NULL DEFAULT 0,
+                credit_cost INTEGER NOT NULL DEFAULT 0,
+                export_charged INTEGER NOT NULL DEFAULT 0,
+                results_json TEXT,
+                created_at TEXT NOT NULL
+            );
+            """
+
+    with db() as conn:
+        conn.executescript(postgres_schema if USE_POSTGRES else sqlite_schema)
 
         admin_email = os.getenv("ADMIN_EMAIL", "admin@npoil.vn").strip().lower()
         admin_password = os.getenv("ADMIN_PASSWORD", "Admin@123456")
@@ -320,7 +461,6 @@ def init_db():
                     now_text(),
                 ),
             )
-
 
 def add_credit(conn, user_id, amount, tx_type, reason):
     user = conn.execute("SELECT credit_balance FROM users WHERE id=?", (user_id,)).fetchone()
@@ -490,8 +630,12 @@ def register():
                 )
             flash("Đăng ký thành công. Bạn có thể đăng nhập ngay.", "success")
             return redirect(url_for("login"))
-        except sqlite3.IntegrityError:
-            flash("Email này đã tồn tại.", "danger")
+        except Exception as exc:
+            msg = str(exc).lower()
+            if "unique" in msg or "duplicate" in msg or isinstance(exc, sqlite3.IntegrityError):
+                flash("Email này đã tồn tại.", "danger")
+            else:
+                flash(f"Không thể đăng ký: {exc}", "danger")
 
     return render_template("register.html")
 

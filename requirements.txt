@@ -6,3 +6,4 @@ geopy
 google-search-results>=2.0.2
 python-dotenv
 Werkzeug
+psycopg2-binary
