@@ -50,8 +50,8 @@
     <div class="card app-card h-100">
       <div class="card-header"><strong>Top xếp hạng xem trước</strong></div>
       <div class="card-body p-0 table-responsive">
-        <table class="table mb-0"><thead><tr><th>Hạng</th><th>Người dùng</th><th>Điểm</th><th>Bài</th></tr></thead><tbody>
-        {% for r in ranking_preview %}<tr><td>{{ loop.index }}</td><td><strong>{{ r.name }}</strong><br><small class="text-muted">{{ r.email }}</small></td><td><strong>{{ r.total_points }}</strong></td><td>{{ r.valid_posts }}</td></tr>{% else %}<tr><td colspan="4" class="text-center text-muted py-4">Chưa có người đủ điều kiện.</td></tr>{% endfor %}
+        <table class="table mb-0"><thead><tr><th>Hạng</th><th>Người dùng</th><th>Điểm 100</th><th>Bài</th><th>ĐK</th></tr></thead><tbody>
+        {% for r in ranking_preview %}<tr><td>{{ loop.index }}</td><td><strong>{{ r.name }}</strong><br><small class="text-muted">{{ r.email }}</small></td><td><strong>{{ '%.2f'|format(r.final_score) }}</strong></td><td>{{ r.valid_posts }}</td><td>{{ r.min_valid_posts }} bài</td></tr>{% else %}<tr><td colspan="5" class="text-center text-muted py-4">Chưa có người đủ điều kiện.</td></tr>{% endfor %}
         </tbody></table>
       </div>
     </div>
@@ -61,9 +61,9 @@
 <div class="card app-card mt-4">
   <div class="card-header d-flex justify-content-between align-items-center"><strong>Kết quả đã chốt tháng {{ month }}</strong><a class="btn btn-sm btn-outline-warning" href="{{ url_for('winners', month=month) }}">Xem trang vinh danh</a></div>
   <div class="card-body p-0 table-responsive">
-    <table class="table table-hover mb-0"><thead><tr><th>Hạng</th><th>Người thắng</th><th>Nhóm/Đơn vị</th><th>Điểm</th><th>Bài</th><th>Giải</th><th>Giá trị</th><th>Chốt lúc</th></tr></thead><tbody>
+    <table class="table table-hover mb-0"><thead><tr><th>Hạng</th><th>Người thắng</th><th>Nhóm/Đơn vị</th><th>Điểm 100</th><th>Bài</th><th>Giải</th><th>Giá trị</th><th>Chốt lúc</th></tr></thead><tbody>
     {% for w in winners %}
-    <tr class="winner-row"><td><span class="rank-medal">{{ w.rank_no }}</span></td><td><strong>{{ w.user_name }}</strong><br><small class="text-muted">{{ w.email }}</small></td><td>{{ w.group_type }}<br><small>{{ w.unit_name or '-' }}</small></td><td><strong>{{ w.total_points }}</strong></td><td>{{ w.valid_posts }}</td><td><span class="badge text-bg-warning">{{ w.prize_name }}</span></td><td><strong>{{ w.prize_value|vnd }}</strong></td><td>{{ w.finalized_at }}</td></tr>
+    <tr class="winner-row"><td><span class="rank-medal">{{ w.rank_no }}</span></td><td><strong>{{ w.user_name }}</strong><br><small class="text-muted">{{ w.email }}</small></td><td>{{ w.group_type }}<br><small>{{ w.unit_name or '-' }}</small></td><td><strong>{{ '%.2f'|format(w.final_score or w.total_points) }}</strong></td><td>{{ w.valid_posts }}</td><td><span class="badge text-bg-warning">{{ w.prize_name }}</span></td><td><strong>{{ w.prize_value|vnd }}</strong></td><td>{{ w.finalized_at }}</td></tr>
     {% else %}<tr><td colspan="8" class="text-center text-muted py-4">Chưa chốt giải cho tháng này.</td></tr>{% endfor %}
     </tbody></table>
   </div>

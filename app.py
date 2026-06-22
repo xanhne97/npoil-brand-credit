@@ -44,16 +44,31 @@ EXPORT_EXCEL_CREDIT = 10
 ALLOWED_UPLOAD_EXT = {"png", "jpg", "jpeg", "webp", "pdf"}
 
 DEFAULT_SETTINGS = {
+    # Credit tìm kiếm
     "search_credit_per_keyword": {"value": "5", "label": "Credit trừ cho mỗi từ khóa tìm kiếm"},
     "export_excel_credit": {"value": "10", "label": "Credit trừ khi xuất Excel"},
-    "like_points_divisor": {"value": "5", "label": "Bao nhiêu like/reaction được cộng 1 điểm"},
-    "comment_points": {"value": "1", "label": "Điểm cộng cho mỗi comment hợp lệ"},
-    "share_points": {"value": "2", "label": "Điểm cộng cho mỗi lượt share lại"},
-    "view_step": {"value": "500", "label": "Mốc view để cộng điểm"},
-    "view_step_points": {"value": "5", "label": "Điểm cộng cho mỗi mốc view"},
-    "follower_points": {"value": "1", "label": "Điểm cộng cho mỗi follow TikTok tăng"},
-    "friends_points_divisor": {"value": "2", "label": "Bao nhiêu bạn bè Facebook tăng được cộng 1 điểm"},
+
+    # Công thức cộng điểm/credit khi duyệt từng bài gửi mới
+    "like_points_divisor": {"value": "5", "label": "Bao nhiêu like/reaction được cộng 1 điểm cho bài gửi"},
+    "comment_points": {"value": "1", "label": "Điểm cộng cho mỗi comment hợp lệ trên bài gửi"},
+    "share_points": {"value": "2", "label": "Điểm cộng cho mỗi lượt share lại trên bài gửi"},
+    "view_step": {"value": "500", "label": "Mốc view để cộng điểm cho bài gửi"},
+    "view_step_points": {"value": "5", "label": "Điểm cộng cho mỗi mốc view của bài gửi"},
+    "follower_points": {"value": "1", "label": "Điểm cộng cho mỗi follow TikTok tăng khi duyệt bài"},
+    "friends_points_divisor": {"value": "2", "label": "Bao nhiêu bạn bè Facebook tăng được cộng 1 điểm khi duyệt bài"},
     "extra_credit_divisor": {"value": "5", "label": "Bao nhiêu điểm cộng thêm được quy đổi 1 credit"},
+
+    # Công thức xếp hạng công bằng theo tháng, tính tương đối trong cùng nhóm lọc
+    "score_weight_tasks": {"value": "30", "label": "Tỷ trọng điểm nhiệm vụ/bài hợp lệ trong bảng xếp hạng tháng"},
+    "score_weight_interactions": {"value": "25", "label": "Tỷ trọng điểm tương tác trong bảng xếp hạng tháng"},
+    "score_weight_shares": {"value": "25", "label": "Tỷ trọng điểm lượt share trong bảng xếp hạng tháng"},
+    "score_weight_growth": {"value": "10", "label": "Tỷ trọng điểm tăng trưởng follow/bạn bè trong bảng xếp hạng tháng"},
+    "score_weight_compliance": {"value": "10", "label": "Tỷ trọng điểm tuân thủ bài chính thức/trọng điểm"},
+    "min_valid_posts_for_winner": {"value": "6", "label": "Số bài/video hợp lệ tối thiểu để đủ điều kiện xét giải"},
+    "leaderboard_comment_weight": {"value": "2", "label": "Hệ số comment khi tính chỉ số tương tác thô"},
+    "leaderboard_view_unit": {"value": "100", "label": "Bao nhiêu view được tính là 1 đơn vị tương tác thô"},
+    "leaderboard_view_weight": {"value": "1", "label": "Hệ số điểm thô cho mỗi đơn vị view"},
+    "leaderboard_friends_growth_weight": {"value": "0.5", "label": "Hệ số quy đổi bạn bè Facebook tăng so với follow TikTok tăng"},
 }
 
 
@@ -144,6 +159,21 @@ def setting_int(settings, key, default=0):
     except (ValueError, TypeError, AttributeError):
         return default
 
+
+def setting_float(settings, key, default=0.0):
+    try:
+        return float(settings.get(key, default))
+    except (ValueError, TypeError, AttributeError):
+        return default
+
+
+
+def row_value(row, key, default=0):
+    try:
+        value = row[key]
+    except Exception:
+        return default
+    return default if value is None else value
 
 
 def seed_default_prizes(conn):
@@ -254,34 +284,145 @@ def get_prize_tiers_with_items(conn, active_only=False):
     return result
 
 
-def get_ranking_rows(conn, month, limit=None):
-    sql = """
+def normalize_component(value, max_value, weight):
+    value = float(value or 0)
+    max_value = float(max_value or 0)
+    weight = float(weight or 0)
+    if max_value <= 0 or value <= 0 or weight <= 0:
+        return 0.0
+    return round((value / max_value) * weight, 2)
+
+
+def get_fair_ranking_rows(conn, month, group_type="all", unit_keyword="", limit=None, prize_eligible_only=False, include_zero=False):
+    """Return monthly leaderboard rows using fair relative scoring.
+
+    The ranking keeps raw metrics for transparency but caps each scoring category by percentage:
+    tasks/posts, interactions, shares, growth, and compliance.
+    Existing followers/friends are not counted; only growth within submitted proof is used.
+    """
+    settings = get_app_settings(conn)
+    where_sql, filter_params = user_filter_sql(group_type, unit_keyword)
+    where_sql = where_sql + " AND u.status='active'"
+
+    rows = conn.execute(
+        f"""
         SELECT u.id, u.name, u.email, u.group_type, u.department, u.distributor_name, u.dealer_name,
-               COALESCE(pt.total_points,0) AS total_points,
+               u.credit_balance,
                COALESCE(st.valid_posts,0) AS valid_posts,
-               u.credit_balance
+               COALESCE(st.base_task_points,0) AS base_task_points,
+               COALESCE(st.total_likes,0) AS total_likes,
+               COALESCE(st.total_comments,0) AS total_comments,
+               COALESCE(st.total_shares,0) AS total_shares,
+               COALESCE(st.total_views,0) AS total_views,
+               COALESCE(st.follower_growth,0) AS follower_growth,
+               COALESCE(st.friends_growth,0) AS friends_growth,
+               COALESCE(st.compliance_count,0) AS compliance_count,
+               COALESCE(st.raw_points_awarded,0) AS raw_points_awarded
         FROM users u
         LEFT JOIN (
-            SELECT user_id, SUM(points) AS total_points
-            FROM point_transactions
-            WHERE month_key=?
-            GROUP BY user_id
-        ) pt ON pt.user_id=u.id
-        LEFT JOIN (
-            SELECT user_id, COUNT(*) AS valid_posts
-            FROM submissions
-            WHERE status IN ('auto_approved','approved')
-              AND substr(COALESCE(approved_at, created_at),1,7)=?
-            GROUP BY user_id
+            SELECT s.user_id,
+                   COUNT(*) AS valid_posts,
+                   SUM(COALESCE(m.points_reward,0)) AS base_task_points,
+                   SUM(COALESCE(s.like_count,0)) AS total_likes,
+                   SUM(COALESCE(s.comment_count,0)) AS total_comments,
+                   SUM(COALESCE(s.share_count,0)) AS total_shares,
+                   SUM(COALESCE(s.view_count,0)) AS total_views,
+                   SUM(CASE WHEN s.follower_after > s.follower_before THEN s.follower_after - s.follower_before ELSE 0 END) AS follower_growth,
+                   SUM(CASE WHEN s.friends_after > s.friends_before THEN s.friends_after - s.friends_before ELSE 0 END) AS friends_growth,
+                   SUM(CASE WHEN m.mission_type IN ('official_share','priority','official_post') OR COALESCE(m.official_post_url,'') <> '' THEN 1 ELSE 0 END) AS compliance_count,
+                   SUM(COALESCE(s.points_awarded,0)) AS raw_points_awarded
+            FROM submissions s
+            JOIN missions m ON m.id=s.mission_id
+            WHERE s.status IN ('auto_approved','approved')
+              AND substr(COALESCE(s.approved_at, s.created_at),1,7)=?
+            GROUP BY s.user_id
         ) st ON st.user_id=u.id
-        WHERE u.is_admin=0 AND u.status='active'
-          AND COALESCE(pt.total_points,0) > 0
-          AND COALESCE(st.valid_posts,0) > 0
-        ORDER BY total_points DESC, valid_posts DESC, u.name ASC
-    """
+        WHERE {where_sql}
+        """,
+        (month, *filter_params),
+    ).fetchall()
+
+    comment_weight = setting_float(settings, "leaderboard_comment_weight", 2)
+    view_unit = max(1.0, setting_float(settings, "leaderboard_view_unit", 100))
+    view_weight = setting_float(settings, "leaderboard_view_weight", 1)
+    friends_growth_weight = setting_float(settings, "leaderboard_friends_growth_weight", 0.5)
+
+    weight_tasks = setting_float(settings, "score_weight_tasks", 30)
+    weight_interactions = setting_float(settings, "score_weight_interactions", 25)
+    weight_shares = setting_float(settings, "score_weight_shares", 25)
+    weight_growth = setting_float(settings, "score_weight_growth", 10)
+    weight_compliance = setting_float(settings, "score_weight_compliance", 10)
+    min_valid_posts = setting_int(settings, "min_valid_posts_for_winner", 6)
+
+    prepared = []
+    for row in rows:
+        valid_posts = int(row_value(row, "valid_posts", 0) or 0)
+        if not include_zero and valid_posts <= 0:
+            continue
+        if prize_eligible_only and valid_posts < min_valid_posts:
+            continue
+
+        total_likes = int(row_value(row, "total_likes", 0) or 0)
+        total_comments = int(row_value(row, "total_comments", 0) or 0)
+        total_views = int(row_value(row, "total_views", 0) or 0)
+        total_shares = int(row_value(row, "total_shares", 0) or 0)
+        follower_growth = int(row_value(row, "follower_growth", 0) or 0)
+        friends_growth = int(row_value(row, "friends_growth", 0) or 0)
+        base_task_points = float(row_value(row, "base_task_points", 0) or 0)
+        compliance_count = int(row_value(row, "compliance_count", 0) or 0)
+
+        raw_interactions = total_likes + (total_comments * comment_weight) + ((total_views / view_unit) * view_weight)
+        growth_raw = follower_growth + (friends_growth * friends_growth_weight)
+
+        item = dict(row)
+        item.update({
+            "task_raw": round(base_task_points, 2),
+            "interaction_raw": round(raw_interactions, 2),
+            "share_raw": total_shares,
+            "growth_raw": round(growth_raw, 2),
+            "compliance_raw": compliance_count,
+            "min_valid_posts": min_valid_posts,
+            "is_prize_eligible": valid_posts >= min_valid_posts,
+        })
+        prepared.append(item)
+
+    max_task = max([x["task_raw"] for x in prepared] or [0])
+    max_interaction = max([x["interaction_raw"] for x in prepared] or [0])
+    max_share = max([x["share_raw"] for x in prepared] or [0])
+    max_growth = max([x["growth_raw"] for x in prepared] or [0])
+    max_compliance = max([x["compliance_raw"] for x in prepared] or [0])
+
+    for item in prepared:
+        item["score_tasks"] = normalize_component(item["task_raw"], max_task, weight_tasks)
+        item["score_interactions"] = normalize_component(item["interaction_raw"], max_interaction, weight_interactions)
+        item["score_shares"] = normalize_component(item["share_raw"], max_share, weight_shares)
+        item["score_growth"] = normalize_component(item["growth_raw"], max_growth, weight_growth)
+        item["score_compliance"] = normalize_component(item["compliance_raw"], max_compliance, weight_compliance)
+        item["final_score"] = round(
+            item["score_tasks"] + item["score_interactions"] + item["score_shares"] + item["score_growth"] + item["score_compliance"],
+            2,
+        )
+        # Backward-compatible display field used by older templates.
+        item["total_points"] = item["final_score"]
+
+    prepared.sort(
+        key=lambda x: (
+            -x["final_score"],
+            -int(x.get("valid_posts") or 0),
+            -int(x.get("compliance_raw") or 0),
+            -float(x.get("interaction_raw") or 0),
+            -int(x.get("share_raw") or 0),
+            -float(x.get("growth_raw") or 0),
+            (x.get("name") or "").lower(),
+        )
+    )
     if limit:
-        sql += f" LIMIT {int(limit)}"
-    return conn.execute(sql, (month, month)).fetchall()
+        prepared = prepared[: int(limit)]
+    return prepared
+
+
+def get_ranking_rows(conn, month, limit=None):
+    return get_fair_ranking_rows(conn, month, limit=limit, prize_eligible_only=True)
 
 
 def user_filter_sql(group_type, unit_keyword):
@@ -452,6 +593,31 @@ def admin_required(fn):
     return wrapper
 
 
+def get_table_columns(conn, table_name):
+    if USE_POSTGRES:
+        rows = conn.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name=?",
+            (table_name,),
+        ).fetchall()
+        return {row["column_name"] for row in rows}
+    rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    return {row["name"] for row in rows}
+
+
+def apply_schema_migrations(conn):
+    """Add columns needed by newer versions without resetting existing data."""
+    try:
+        winner_cols = get_table_columns(conn, "monthly_winners")
+        if "final_score" not in winner_cols:
+            if USE_POSTGRES:
+                conn.execute("ALTER TABLE monthly_winners ADD COLUMN final_score DOUBLE PRECISION NOT NULL DEFAULT 0")
+            else:
+                conn.execute("ALTER TABLE monthly_winners ADD COLUMN final_score REAL NOT NULL DEFAULT 0")
+    except Exception:
+        # Migration should never block the app from starting in demo/local mode.
+        pass
+
+
 def init_db():
     sqlite_schema = """
             CREATE TABLE IF NOT EXISTS users (
@@ -592,6 +758,7 @@ def init_db():
                 group_type TEXT,
                 unit_name TEXT,
                 total_points INTEGER NOT NULL DEFAULT 0,
+                final_score REAL NOT NULL DEFAULT 0,
                 valid_posts INTEGER NOT NULL DEFAULT 0,
                 prize_tier_title TEXT,
                 prize_name TEXT NOT NULL,
@@ -737,6 +904,7 @@ def init_db():
                 group_type TEXT,
                 unit_name TEXT,
                 total_points INTEGER NOT NULL DEFAULT 0,
+                final_score REAL NOT NULL DEFAULT 0,
                 valid_posts INTEGER NOT NULL DEFAULT 0,
                 prize_tier_title TEXT,
                 prize_name TEXT NOT NULL,
@@ -748,6 +916,7 @@ def init_db():
 
     with db() as conn:
         conn.executescript(postgres_schema if USE_POSTGRES else sqlite_schema)
+        apply_schema_migrations(conn)
         seed_default_settings(conn)
         seed_default_prizes(conn)
 
@@ -1264,45 +1433,8 @@ def leaderboard():
     month = request.args.get("month", current_month()).strip() or current_month()
     group_type = request.args.get("group_type", "all").strip() or "all"
     unit = request.args.get("unit", "").strip()
-    where_sql, filter_params = user_filter_sql(group_type, unit)
-
     with db() as conn:
-        rows = conn.execute(
-            f"""
-            SELECT u.id, u.name, u.group_type, u.department, u.distributor_name, u.dealer_name,
-                   COALESCE(pt.total_points,0) AS total_points,
-                   COALESCE(st.valid_posts,0) AS valid_posts,
-                   COALESCE(st.total_likes,0) AS total_likes,
-                   COALESCE(st.total_comments,0) AS total_comments,
-                   COALESCE(st.total_shares,0) AS total_shares,
-                   COALESCE(st.follower_growth,0) AS follower_growth,
-                   COALESCE(st.friends_growth,0) AS friends_growth,
-                   u.credit_balance
-            FROM users u
-            LEFT JOIN (
-                SELECT user_id, SUM(points) AS total_points
-                FROM point_transactions
-                WHERE month_key=?
-                GROUP BY user_id
-            ) pt ON pt.user_id=u.id
-            LEFT JOIN (
-                SELECT user_id, COUNT(*) AS valid_posts,
-                       SUM(like_count) AS total_likes,
-                       SUM(comment_count) AS total_comments,
-                       SUM(share_count) AS total_shares,
-                       SUM(CASE WHEN follower_after > follower_before THEN follower_after - follower_before ELSE 0 END) AS follower_growth,
-                       SUM(CASE WHEN friends_after > friends_before THEN friends_after - friends_before ELSE 0 END) AS friends_growth
-                FROM submissions
-                WHERE status IN ('auto_approved','approved')
-                  AND substr(COALESCE(approved_at, created_at),1,7)=?
-                GROUP BY user_id
-            ) st ON st.user_id=u.id
-            WHERE {where_sql}
-            ORDER BY total_points DESC, valid_posts DESC, total_shares DESC, total_likes DESC
-            LIMIT 100
-            """,
-            (month, month, *filter_params),
-        ).fetchall()
+        rows = get_fair_ranking_rows(conn, month, group_type, unit, limit=100, prize_eligible_only=False, include_zero=False)
     return render_template("leaderboard.html", rows=rows, month=month, group_type=group_type, unit=unit)
 
 
@@ -1528,8 +1660,8 @@ def admin_close_winners():
                 """
                 INSERT INTO monthly_winners
                 (month_key, rank_no, user_id, user_name, email, group_type, unit_name,
-                 total_points, valid_posts, prize_tier_title, prize_name, prize_value, finalized_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 total_points, final_score, valid_posts, prize_tier_title, prize_name, prize_value, finalized_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     month,
@@ -1539,7 +1671,8 @@ def admin_close_winners():
                     ranker["email"],
                     ranker["group_type"],
                     unit_name_from_row(ranker),
-                    int(ranker["total_points"] or 0),
+                    int(round(float(ranker["final_score"] or 0))),
+                    float(ranker["final_score"] or 0),
                     int(ranker["valid_posts"] or 0),
                     current_tier["title"],
                     prize["prize_name"],
@@ -1570,7 +1703,8 @@ def admin_winners_download():
             "email": "Email",
             "group_type": "Nhóm",
             "unit_name": "Đơn vị",
-            "total_points": "Tổng điểm",
+            "total_points": "Điểm làm tròn",
+            "final_score": "Điểm xếp hạng 100",
             "valid_posts": "Bài hợp lệ",
             "prize_tier_title": "Mốc giải",
             "prize_name": "Tên giải",
@@ -1846,56 +1980,55 @@ def admin_reports():
     month = request.args.get("month", current_month()).strip() or current_month()
     group_type = request.args.get("group_type", "all").strip() or "all"
     unit = request.args.get("unit", "").strip()
-    where_sql, filter_params = user_filter_sql(group_type, unit)
-
     with db() as conn:
-        rows = conn.execute(
-            f"""
-            SELECT u.name, u.email, u.group_type, u.department, u.distributor_name, u.dealer_name,
-                   COALESCE(pt.total_points,0) AS total_points,
-                   COALESCE(st.valid_submissions,0) AS valid_submissions,
-                   COALESCE(st.pending_submissions,0) AS pending_submissions,
-                   COALESCE(st.rejected_submissions,0) AS rejected_submissions,
-                   COALESCE(ct.credit_earned,0) AS credit_earned,
-                   COALESCE(ct.credit_spent,0) AS credit_spent,
-                   COALESCE(sl.search_count,0) AS search_count,
-                   COALESCE(sl.search_credit_cost,0) AS search_credit_cost,
-                   u.credit_balance
-            FROM users u
-            LEFT JOIN (
-                SELECT user_id, SUM(points) AS total_points
-                FROM point_transactions
-                WHERE month_key=?
-                GROUP BY user_id
-            ) pt ON pt.user_id=u.id
-            LEFT JOIN (
-                SELECT user_id,
-                       SUM(CASE WHEN status IN ('approved','auto_approved') THEN 1 ELSE 0 END) AS valid_submissions,
-                       SUM(CASE WHEN status IN ('pending','need_review','need_more_proof') THEN 1 ELSE 0 END) AS pending_submissions,
-                       SUM(CASE WHEN status='rejected' THEN 1 ELSE 0 END) AS rejected_submissions
-                FROM submissions
-                WHERE substr(created_at,1,7)=?
-                GROUP BY user_id
-            ) st ON st.user_id=u.id
-            LEFT JOIN (
-                SELECT user_id,
-                       SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) AS credit_earned,
-                       ABS(SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END)) AS credit_spent
-                FROM credit_transactions
-                WHERE substr(created_at,1,7)=?
-                GROUP BY user_id
-            ) ct ON ct.user_id=u.id
-            LEFT JOIN (
-                SELECT user_id, COUNT(*) AS search_count, SUM(credit_cost) AS search_credit_cost
-                FROM search_logs
-                WHERE substr(created_at,1,7)=?
-                GROUP BY user_id
-            ) sl ON sl.user_id=u.id
-            WHERE {where_sql}
-            ORDER BY total_points DESC, valid_submissions DESC
+        rows = get_fair_ranking_rows(conn, month, group_type, unit, include_zero=True)
+        submission_stats = conn.execute(
+            """
+            SELECT user_id,
+                   SUM(CASE WHEN status IN ('approved','auto_approved') THEN 1 ELSE 0 END) AS valid_submissions,
+                   SUM(CASE WHEN status IN ('pending','need_review','need_more_proof') THEN 1 ELSE 0 END) AS pending_submissions,
+                   SUM(CASE WHEN status='rejected' THEN 1 ELSE 0 END) AS rejected_submissions
+            FROM submissions
+            WHERE substr(created_at,1,7)=?
+            GROUP BY user_id
             """,
-            (month, month, month, month, *filter_params),
+            (month,),
         ).fetchall()
+        credit_stats = conn.execute(
+            """
+            SELECT user_id,
+                   SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) AS credit_earned,
+                   ABS(SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END)) AS credit_spent
+            FROM credit_transactions
+            WHERE substr(created_at,1,7)=?
+            GROUP BY user_id
+            """,
+            (month,),
+        ).fetchall()
+        search_stats = conn.execute(
+            """
+            SELECT user_id, COUNT(*) AS search_count, SUM(credit_cost) AS search_credit_cost
+            FROM search_logs
+            WHERE substr(created_at,1,7)=?
+            GROUP BY user_id
+            """,
+            (month,),
+        ).fetchall()
+
+    sub_map = {r["user_id"]: dict(r) for r in submission_stats}
+    credit_map = {r["user_id"]: dict(r) for r in credit_stats}
+    search_map = {r["user_id"]: dict(r) for r in search_stats}
+    for row in rows:
+        sub = sub_map.get(row["id"], {})
+        cred = credit_map.get(row["id"], {})
+        sea = search_map.get(row["id"], {})
+        row["valid_submissions"] = int(row.get("valid_posts") or sub.get("valid_submissions") or 0)
+        row["pending_submissions"] = int(sub.get("pending_submissions") or 0)
+        row["rejected_submissions"] = int(sub.get("rejected_submissions") or 0)
+        row["credit_earned"] = int(cred.get("credit_earned") or 0)
+        row["credit_spent"] = int(cred.get("credit_spent") or 0)
+        row["search_count"] = int(sea.get("search_count") or 0)
+        row["search_credit_cost"] = int(sea.get("search_credit_cost") or 0)
     return render_template("admin/reports.html", rows=rows, month=month, group_type=group_type, unit=unit)
 
 
@@ -1906,67 +2039,87 @@ def admin_reports_download():
     month = request.args.get("month", current_month()).strip() or current_month()
     group_type = request.args.get("group_type", "all").strip() or "all"
     unit = request.args.get("unit", "").strip()
-    where_sql, filter_params = user_filter_sql(group_type, unit)
-
     with db() as conn:
-        rows = conn.execute(
-            f"""
-            SELECT u.name AS "Họ tên", u.email AS "Email", u.group_type AS "Nhóm",
-                   u.department AS "Phòng ban", u.distributor_name AS "Nhà phân phối",
-                   u.dealer_name AS "Đại lý",
-                   COALESCE(pt.total_points,0) AS "Tổng điểm",
-                   COALESCE(st.valid_submissions,0) AS "Bài hợp lệ",
-                   COALESCE(st.pending_submissions,0) AS "Bài chờ kiểm tra",
-                   COALESCE(st.rejected_submissions,0) AS "Bài bị từ chối",
-                   COALESCE(ct.credit_earned,0) AS "Credit nhận",
-                   COALESCE(ct.credit_spent,0) AS "Credit đã dùng",
-                   COALESCE(sl.search_count,0) AS "Số lượt tìm kiếm",
-                   COALESCE(sl.search_credit_cost,0) AS "Credit tìm kiếm",
-                   u.credit_balance AS "Credit hiện có"
-            FROM users u
-            LEFT JOIN (
-                SELECT user_id, SUM(points) AS total_points
-                FROM point_transactions
-                WHERE month_key=?
-                GROUP BY user_id
-            ) pt ON pt.user_id=u.id
-            LEFT JOIN (
-                SELECT user_id,
-                       SUM(CASE WHEN status IN ('approved','auto_approved') THEN 1 ELSE 0 END) AS valid_submissions,
-                       SUM(CASE WHEN status IN ('pending','need_review','need_more_proof') THEN 1 ELSE 0 END) AS pending_submissions,
-                       SUM(CASE WHEN status='rejected' THEN 1 ELSE 0 END) AS rejected_submissions
-                FROM submissions
-                WHERE substr(created_at,1,7)=?
-                GROUP BY user_id
-            ) st ON st.user_id=u.id
-            LEFT JOIN (
-                SELECT user_id,
-                       SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) AS credit_earned,
-                       ABS(SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END)) AS credit_spent
-                FROM credit_transactions
-                WHERE substr(created_at,1,7)=?
-                GROUP BY user_id
-            ) ct ON ct.user_id=u.id
-            LEFT JOIN (
-                SELECT user_id, COUNT(*) AS search_count, SUM(credit_cost) AS search_credit_cost
-                FROM search_logs
-                WHERE substr(created_at,1,7)=?
-                GROUP BY user_id
-            ) sl ON sl.user_id=u.id
-            WHERE {where_sql}
-            ORDER BY "Tổng điểm" DESC, "Bài hợp lệ" DESC
+        rows = get_fair_ranking_rows(conn, month, group_type, unit, include_zero=True)
+        submission_stats = conn.execute(
+            """
+            SELECT user_id,
+                   SUM(CASE WHEN status IN ('approved','auto_approved') THEN 1 ELSE 0 END) AS valid_submissions,
+                   SUM(CASE WHEN status IN ('pending','need_review','need_more_proof') THEN 1 ELSE 0 END) AS pending_submissions,
+                   SUM(CASE WHEN status='rejected' THEN 1 ELSE 0 END) AS rejected_submissions
+            FROM submissions
+            WHERE substr(created_at,1,7)=?
+            GROUP BY user_id
             """,
-            (month, month, month, month, *filter_params),
+            (month,),
         ).fetchall()
-    df = pd.DataFrame([dict(r) for r in rows])
+        credit_stats = conn.execute(
+            """
+            SELECT user_id,
+                   SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) AS credit_earned,
+                   ABS(SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END)) AS credit_spent
+            FROM credit_transactions
+            WHERE substr(created_at,1,7)=?
+            GROUP BY user_id
+            """,
+            (month,),
+        ).fetchall()
+        search_stats = conn.execute(
+            """
+            SELECT user_id, COUNT(*) AS search_count, SUM(credit_cost) AS search_credit_cost
+            FROM search_logs
+            WHERE substr(created_at,1,7)=?
+            GROUP BY user_id
+            """,
+            (month,),
+        ).fetchall()
+    sub_map = {r["user_id"]: dict(r) for r in submission_stats}
+    credit_map = {r["user_id"]: dict(r) for r in credit_stats}
+    search_map = {r["user_id"]: dict(r) for r in search_stats}
+    export_rows = []
+    for idx, row in enumerate(rows, start=1):
+        sub = sub_map.get(row["id"], {})
+        cred = credit_map.get(row["id"], {})
+        sea = search_map.get(row["id"], {})
+        export_rows.append({
+            "Hạng": idx,
+            "Họ tên": row.get("name"),
+            "Email": row.get("email"),
+            "Nhóm": row.get("group_type"),
+            "Phòng ban": row.get("department"),
+            "Nhà phân phối": row.get("distributor_name"),
+            "Đại lý": row.get("dealer_name"),
+            "Điểm xếp hạng 100": row.get("final_score"),
+            "Điểm nhiệm vụ": row.get("score_tasks"),
+            "Điểm tương tác": row.get("score_interactions"),
+            "Điểm share": row.get("score_shares"),
+            "Điểm tăng trưởng": row.get("score_growth"),
+            "Điểm tuân thủ": row.get("score_compliance"),
+            "Bài hợp lệ": row.get("valid_posts"),
+            "Bài chờ": int(sub.get("pending_submissions") or 0),
+            "Bài từ chối": int(sub.get("rejected_submissions") or 0),
+            "Like": row.get("total_likes"),
+            "Comment": row.get("total_comments"),
+            "Share": row.get("total_shares"),
+            "View": row.get("total_views"),
+            "Follow tăng": row.get("follower_growth"),
+            "Bạn bè tăng": row.get("friends_growth"),
+            "Credit nhận": int(cred.get("credit_earned") or 0),
+            "Credit đã dùng": int(cred.get("credit_spent") or 0),
+            "Số lượt tìm kiếm": int(sea.get("search_count") or 0),
+            "Credit tìm kiếm": int(sea.get("search_credit_cost") or 0),
+            "Credit hiện có": row.get("credit_balance"),
+            "Đủ điều kiện xét giải": "Có" if row.get("is_prize_eligible") else "Không",
+        })
+    df = pd.DataFrame(export_rows)
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="BaoCao")
+        df.to_excel(writer, index=False, sheet_name="BaoCaoCongBang")
     output.seek(0)
     return send_file(
         output,
         as_attachment=True,
-        download_name=f"bao_cao_thi_dua_npoil_{month}.xlsx",
+        download_name=f"bao_cao_thi_dua_cong_bang_npoil_{month}.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 

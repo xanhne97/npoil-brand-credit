@@ -52,3 +52,27 @@ Lưu ý:
 - Nếu đang dùng PostgreSQL, bảng mới sẽ tự được tạo khi app khởi động.
 - Nếu đang dùng SQLite local, không upload file npoil_brand_credit.db lên GitHub.
 - Nếu deploy trên Render, nên dùng PostgreSQL để dữ liệu tồn tại lâu dài.
+
+=== V6 - CÔNG THỨC XẾP HẠNG CÔNG BẰNG ===
+
+Bản V6 bổ sung cơ chế xếp hạng theo thang 100 điểm:
+- Bài/nhiệm vụ hợp lệ: 30%
+- Tương tác: 25%
+- Share: 25%
+- Tăng trưởng follow/bạn bè: 10%
+- Tuân thủ bài chính thức/trọng điểm: 10%
+
+Nguyên tắc công bằng:
+- Không tính số follow/bạn bè có sẵn.
+- Chỉ tính phần tăng thêm trong tháng.
+- Điểm tăng trưởng được tính tương đối trong cùng nhóm lọc, không dùng trần cứng gây đồng điểm.
+- Nếu bằng điểm, hệ thống ưu tiên: số bài hợp lệ, số bài trọng điểm, tương tác thực tế, share thực tế, tăng trưởng thực tế.
+
+Admin có thể chỉnh tại:
+/admin/scoring
+
+Bảng xếp hạng mới:
+/leaderboard
+
+Báo cáo Excel mới:
+/admin/reports

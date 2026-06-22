@@ -4,12 +4,15 @@
   <div class="col-lg-5">
     <div class="card app-card">
       <div class="card-body p-4">
-        <h2 class="mb-1">Cấu hình điểm/credit</h2>
-        <p class="small-muted mb-0">Admin chỉnh công thức quy đổi điểm tương tác, follow/bạn bè tăng và chi phí credit tìm kiếm. Thay đổi sẽ áp dụng cho các bài gửi và lượt tìm kiếm mới.</p>
+        <h2 class="mb-1">Cấu hình điểm/credit & xếp hạng công bằng</h2>
+        <p class="small-muted mb-0">Admin chỉnh công thức cộng điểm bài gửi, phí credit tìm kiếm và tỷ trọng xếp hạng tháng.</p>
       </div>
     </div>
     <div class="alert alert-info mt-3">
-      <strong>Gợi ý:</strong> Điểm cơ bản của từng nhiệm vụ vẫn chỉnh tại trang <a href="{{ url_for('admin_missions') }}">Nhiệm vụ</a>. Trang này dùng để chỉnh công thức cộng thêm và phí tìm kiếm.
+      <strong>Nguyên tắc:</strong> điểm xếp hạng tháng dùng thang 100 điểm theo tỷ trọng. Follow/bạn bè có sẵn chỉ là mốc nền, hệ thống chỉ tính phần tăng thêm trong tháng.
+    </div>
+    <div class="alert alert-warning">
+      <strong>Gợi ý mặc định:</strong> Bài hợp lệ 30%, tương tác 25%, share 25%, tăng trưởng 10%, tuân thủ bài chính thức/trọng điểm 10%.
     </div>
   </div>
   <div class="col-lg-7">
@@ -20,7 +23,7 @@
           {% for row in setting_rows %}
           <div class="mb-3">
             <label class="form-label"><strong>{{ row.label }}</strong></label>
-            <input class="form-control" type="number" name="{{ row.key }}" value="{{ row.value }}" required>
+            <input class="form-control" type="number" step="any" name="{{ row.key }}" value="{{ row.value }}" required>
             <div class="form-text">Mã: <code>{{ row.key }}</code> · Mặc định: {{ row.default }}</div>
           </div>
           {% endfor %}

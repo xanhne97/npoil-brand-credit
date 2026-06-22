@@ -2,8 +2,8 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
   <div>
-    <h2 class="mb-0">Báo cáo thi đua</h2>
-    <div class="small-muted">Theo dõi điểm, trạng thái bài, credit nhận/dùng và lượt tìm kiếm khách hàng.</div>
+    <h2 class="mb-0">Báo cáo thi đua công bằng</h2>
+    <div class="small-muted">Theo dõi điểm xếp hạng 100, điểm từng nhóm tiêu chí, trạng thái bài, credit và lượt tìm kiếm khách hàng.</div>
   </div>
   <a class="btn btn-success" href="{{ url_for('admin_reports_download', month=month, group_type=group_type, unit=unit) }}">Tải Excel</a>
 </div>
@@ -29,33 +29,36 @@
 
 <div class="card app-card">
   <div class="card-body p-0 table-responsive">
-    <table class="table table-hover mb-0">
+    <table class="table table-hover mb-0 align-middle">
       <thead>
         <tr>
-          <th>Hạng</th><th>Họ tên</th><th>Email</th><th>Nhóm</th><th>Đơn vị</th>
-          <th>Điểm</th><th>Hợp lệ</th><th>Chờ</th><th>Từ chối</th>
-          <th>Credit nhận</th><th>Credit dùng</th><th>Tìm kiếm</th><th>Credit tìm kiếm</th><th>Số dư</th>
+          <th>Hạng</th><th>Họ tên</th><th>Nhóm/Đơn vị</th><th>Điểm 100</th>
+          <th>NV</th><th>TT</th><th>Share</th><th>Tăng</th><th>Tuân thủ</th>
+          <th>Hợp lệ</th><th>Chờ</th><th>Từ chối</th>
+          <th>Credit nhận</th><th>Credit dùng</th><th>Tìm kiếm</th><th>Số dư</th>
         </tr>
       </thead>
       <tbody>
       {% for r in rows %}
       <tr>
         <td>{{ loop.index }}</td>
-        <td><strong>{{ r.name }}</strong></td>
-        <td>{{ r.email }}</td>
-        <td>{{ r.group_type }}</td>
-        <td>{{ r.department or r.distributor_name or r.dealer_name or '-' }}</td>
-        <td><strong>{{ r.total_points }}</strong></td>
+        <td><strong>{{ r.name }}</strong><br><small class="text-muted">{{ r.email }}</small></td>
+        <td>{{ r.group_type }}<br><small>{{ r.department or r.distributor_name or r.dealer_name or '-' }}</small></td>
+        <td><strong class="text-success">{{ '%.2f'|format(r.final_score) }}</strong></td>
+        <td>{{ '%.1f'|format(r.score_tasks) }}</td>
+        <td>{{ '%.1f'|format(r.score_interactions) }}</td>
+        <td>{{ '%.1f'|format(r.score_shares) }}</td>
+        <td>{{ '%.1f'|format(r.score_growth) }}</td>
+        <td>{{ '%.1f'|format(r.score_compliance) }}</td>
         <td>{{ r.valid_submissions }}</td>
         <td>{{ r.pending_submissions }}</td>
         <td>{{ r.rejected_submissions }}</td>
         <td>{{ r.credit_earned }}</td>
         <td>{{ r.credit_spent }}</td>
         <td>{{ r.search_count }}</td>
-        <td>{{ r.search_credit_cost }}</td>
         <td>{{ r.credit_balance }}</td>
       </tr>
-      {% else %}<tr><td colspan="14" class="text-center py-4 text-muted">Chưa có dữ liệu.</td></tr>{% endfor %}
+      {% else %}<tr><td colspan="16" class="text-center py-4 text-muted">Chưa có dữ liệu.</td></tr>{% endfor %}
       </tbody>
     </table>
   </div>
