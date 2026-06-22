@@ -4,6 +4,12 @@
   <div>
     <h2 class="mb-0">Duyệt bài gửi</h2>
     <div class="small-muted">Hệ thống tự duyệt bài đủ điều kiện; admin xử lý ngoại lệ, từ chối hoặc yêu cầu bổ sung minh chứng.</div>
+    <div class="mt-2 d-flex gap-2 flex-wrap">
+      <a class="btn btn-sm btn-outline-primary" href="{{ url_for('admin_automation') }}"><i class="bi bi-robot me-1"></i>Cấu hình tự động</a>
+      <form method="post" action="{{ url_for('admin_run_automation') }}" onsubmit="return confirm('Quét tự động các bài đang chờ kiểm tra?')">
+        <button class="btn btn-sm btn-success"><i class="bi bi-lightning-charge-fill me-1"></i>Quét tự động</button>
+      </form>
+    </div>
   </div>
   <div class="btn-group flex-wrap">
     <a class="btn btn-outline-secondary {% if status=='pending' %}active{% endif %}" href="{{ url_for('admin_submissions', status='pending') }}">Cần kiểm tra</a>

@@ -1,0 +1,66 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="row g-3">
+  <div class="col-lg-5">
+    <div class="card app-card h-100">
+      <div class="card-body p-4">
+        <div class="badge text-bg-warning mb-3"><i class="bi bi-robot me-1"></i> V8 Automation cấp 1</div>
+        <h2 class="fw-black mb-2">Cơ chế tự động kiểm tra bài gửi</h2>
+        <p class="small-muted mb-0">
+          Giai đoạn này chưa dùng API Facebook/TikTok. Hệ thống tự xử lý các điều kiện chắc chắn như link trùng,
+          sai nền tảng, ngoài thời gian, thiếu mã nhiệm vụ/hashtag và giới hạn bài/ngày.
+        </p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-7">
+    <div class="row g-3">
+      <div class="col-6 col-md-3"><div class="card app-card stat-card"><div class="card-body"><span>Tự duyệt</span><h3>{{ stats.auto_approved }}</h3></div></div></div>
+      <div class="col-6 col-md-3"><div class="card app-card stat-card"><div class="card-body"><span>Cần kiểm tra</span><h3>{{ stats.need_review }}</h3></div></div></div>
+      <div class="col-6 col-md-3"><div class="card app-card stat-card"><div class="card-body"><span>Chờ bổ sung</span><h3>{{ stats.need_more_proof }}</h3></div></div></div>
+      <div class="col-6 col-md-3"><div class="card app-card stat-card"><div class="card-body"><span>Từ chối</span><h3>{{ stats.rejected }}</h3></div></div></div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mt-1">
+  <div class="col-lg-7">
+    <div class="card app-card">
+      <div class="card-header bg-white"><strong>Cấu hình rule tự động</strong></div>
+      <div class="card-body p-4">
+        <form method="post">
+          {% for r in rules %}
+          <div class="form-check form-switch mb-3">
+            <input class="form-check-input" type="checkbox" role="switch" id="{{ r.key }}" name="{{ r.key }}" {% if r.value|string == '1' %}checked{% endif %}>
+            <label class="form-check-label" for="{{ r.key }}"><strong>{{ r.label }}</strong></label>
+            <div class="form-text"><code>{{ r.key }}</code></div>
+          </div>
+          {% endfor %}
+          <button class="btn btn-warning w-100"><i class="bi bi-save me-1"></i> Lưu cơ chế tự động</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="card app-card mb-3">
+      <div class="card-header bg-white"><strong>Quét lại bài đang chờ</strong></div>
+      <div class="card-body p-4">
+        <p class="small-muted">
+          Dùng khi admin vừa thay đổi rule, hoặc muốn hệ thống tự quét lại các bài đang ở trạng thái
+          <strong>pending/need_review</strong>.
+        </p>
+        <form method="post" action="{{ url_for('admin_run_automation') }}" onsubmit="return confirm('Quét tự động các bài đang chờ kiểm tra?')">
+          <button class="btn btn-success w-100"><i class="bi bi-lightning-charge-fill me-1"></i> Chạy quét tự động</button>
+        </form>
+      </div>
+    </div>
+    <div class="alert alert-info">
+      <strong>Nguyên tắc đề xuất:</strong><br>
+      Bật tự từ chối cho lỗi chắc chắn như trùng link, sai nền tảng, hết hạn, vượt giới hạn. Riêng thiếu hashtag/mã nhiệm vụ nên để <strong>chờ admin kiểm tra</strong> trong giai đoạn test.
+    </div>
+    <div class="alert alert-warning mb-0">
+      <strong>Giai đoạn sau:</strong> khi kết nối API/OCR, hệ thống mới tự lấy lượt tương tác/follow. Hiện tại không cho user tự nhập chỉ số để tránh sai lệch.
+    </div>
+  </div>
+</div>
+{% endblock %}

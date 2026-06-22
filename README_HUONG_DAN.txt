@@ -82,3 +82,27 @@ Báo cáo Excel mới:
 Bản V7 bỏ phần người dùng tự nhập like/share/view/follow/bạn bè vì không khả thi và khó kiểm soát.
 Hệ thống mặc định xếp hạng theo nhiệm vụ hợp lệ 80% và tuân thủ bài chính thức/trọng điểm 20%.
 Các cột like/share/view/follow vẫn được giữ trong database để giai đoạn sau tích hợp API/OCR tự động lấy chỉ số, nhưng không hiển thị trên form người dùng và không tham gia điểm mặc định.
+
+==============================
+V8 - CƠ CHẾ TỰ ĐỘNG CẤP 1
+==============================
+Bản V8 bổ sung trang /admin/automation để cấu hình tự động kiểm tra bài gửi.
+
+Cơ chế tự động hiện tại KHÔNG phụ thuộc API Facebook/TikTok, gồm:
+- Tự kiểm tra link trùng
+- Tự kiểm tra đúng nền tảng Facebook/TikTok
+- Tự kiểm tra thời gian nhiệm vụ
+- Tự kiểm tra mã nhiệm vụ
+- Tự kiểm tra hashtag bắt buộc
+- Tự kiểm tra giới hạn bài/ngày
+- Tự duyệt nếu đạt điều kiện và nhiệm vụ bật auto approve
+- Tự từ chối các lỗi chắc chắn nếu admin bật rule
+
+Trang mới:
+/admin/automation
+
+Nút quét lại:
+Admin có thể bấm "Chạy quét tự động" để hệ thống quét lại các bài pending/need_review sau khi thay đổi rule.
+
+Lưu ý:
+Giai đoạn này chưa tự lấy like/share/follow từ Facebook/TikTok. Khi tích hợp API/OCR ở bản sau, các chỉ số này mới được bật lại.

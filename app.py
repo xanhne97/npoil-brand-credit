@@ -65,11 +65,31 @@ DEFAULT_SETTINGS = {
     "score_weight_growth": {"value": "0", "label": "Tỷ trọng điểm tăng trưởng follow/bạn bè tự động - tạm tắt"},
     "score_weight_compliance": {"value": "20", "label": "Tỷ trọng điểm tuân thủ bài chính thức/trọng điểm"},
     "min_valid_posts_for_winner": {"value": "6", "label": "Số bài/video hợp lệ tối thiểu để đủ điều kiện xét giải"},
+
+    # V8 - Cơ chế tự động cấp 1: hệ thống tự kiểm tra, tự duyệt hoặc tự từ chối theo rule rõ ràng
+    "auto_approve_passed_submissions": {"value": "1", "label": "Tự động duyệt bài đạt đủ điều kiện cơ bản"},
+    "auto_reject_duplicate_link": {"value": "1", "label": "Tự động từ chối link đã được gửi trước đó"},
+    "auto_reject_wrong_platform": {"value": "1", "label": "Tự động từ chối link sai nền tảng nhiệm vụ"},
+    "auto_reject_outside_time": {"value": "1", "label": "Tự động từ chối bài ngoài thời gian nhiệm vụ"},
+    "auto_reject_daily_limit": {"value": "1", "label": "Tự động từ chối khi vượt giới hạn bài/ngày"},
+    "auto_reject_missing_code_hashtag": {"value": "0", "label": "Tự động từ chối khi thiếu mã nhiệm vụ/hashtag; 0 = chuyển admin kiểm tra"},
+    "require_proof_for_auto_approve": {"value": "0", "label": "Bắt buộc có minh chứng mới được tự duyệt; 0 = không bắt buộc"},
+
     "leaderboard_comment_weight": {"value": "2", "label": "Hệ số comment khi tính chỉ số tương tác thô"},
     "leaderboard_view_unit": {"value": "100", "label": "Bao nhiêu view được tính là 1 đơn vị tương tác thô"},
     "leaderboard_view_weight": {"value": "1", "label": "Hệ số điểm thô cho mỗi đơn vị view"},
     "leaderboard_friends_growth_weight": {"value": "0.5", "label": "Hệ số quy đổi bạn bè Facebook tăng so với follow TikTok tăng"},
 }
+
+AUTOMATION_SETTING_KEYS = [
+    "auto_approve_passed_submissions",
+    "auto_reject_duplicate_link",
+    "auto_reject_wrong_platform",
+    "auto_reject_outside_time",
+    "auto_reject_daily_limit",
+    "auto_reject_missing_code_hashtag",
+    "require_proof_for_auto_approve",
+]
 
 
 class PostgresConnection:
@@ -1070,44 +1090,83 @@ def calculate_submission_score(mission, form_values, settings=None):
     return points, credit
 
 
-def auto_check_submission(conn, user_id, mission, post_url, content_text):
+def auto_setting_enabled(settings, key, default=1):
+    return setting_int(settings, key, default) == 1
+
+
+def auto_check_submission(conn, user_id, mission, post_url, content_text, proof_file=None, exclude_submission_id=None):
+    """
+    V8 automation engine cấp 1.
+    Tự kiểm tra các điều kiện rõ ràng, không cần API Facebook/TikTok:
+    - thời gian nhiệm vụ
+    - link trùng
+    - đúng nền tảng
+    - mã nhiệm vụ
+    - hashtag
+    - giới hạn số bài/ngày
+    - minh chứng nếu admin bật bắt buộc
+
+    Kết quả có thể là:
+    - auto_approved: đạt rule và nhiệm vụ cho phép tự duyệt
+    - rejected: sai rule cứng như trùng link/sai nền tảng/hết hạn/vượt giới hạn
+    - need_review: cần admin kiểm tra thêm
+    - pending: đạt rule cơ bản nhưng nhiệm vụ tắt tự duyệt
+    """
+    settings = get_app_settings(conn)
     notes = []
-    errors = []
+    hard_errors = []
+    soft_errors = []
 
     post_url = normalize_url(post_url)
     content_text = content_text or ""
+
+    def add_rule_error(message, setting_key, default=1):
+        if auto_setting_enabled(settings, setting_key, default):
+            hard_errors.append(message)
+        else:
+            soft_errors.append(message)
 
     # Check thời gian nhiệm vụ
     today = date.today()
     start = parse_date(mission["start_date"])
     end = parse_date(mission["end_date"])
     if start and today < start:
-        errors.append("Nhiệm vụ chưa bắt đầu")
+        add_rule_error("Nhiệm vụ chưa bắt đầu", "auto_reject_outside_time", 1)
     if end and today > end:
-        errors.append("Nhiệm vụ đã kết thúc")
+        add_rule_error("Nhiệm vụ đã kết thúc", "auto_reject_outside_time", 1)
 
     # Check link trùng
-    duplicate = conn.execute(
-        "SELECT id FROM submissions WHERE post_url=? AND status IN ('auto_approved','approved','pending','need_review')",
-        (post_url,),
-    ).fetchone()
+    duplicate_sql = """
+        SELECT id FROM submissions
+        WHERE post_url=?
+          AND status IN ('auto_approved','approved','pending','need_review','need_more_proof')
+    """
+    duplicate_params = [post_url]
+    if exclude_submission_id:
+        duplicate_sql += " AND id<>?"
+        duplicate_params.append(exclude_submission_id)
+    duplicate = conn.execute(duplicate_sql, tuple(duplicate_params)).fetchone()
     if duplicate:
-        errors.append("Link bài đã được gửi trước đó")
+        add_rule_error("Link bài đã được gửi trước đó", "auto_reject_duplicate_link", 1)
 
     # Check nền tảng
     if not platform_match(mission["platform"], post_url):
-        errors.append(f"Link không đúng nền tảng yêu cầu: {mission['platform']}")
+        add_rule_error(f"Link không đúng nền tảng yêu cầu: {mission['platform']}", "auto_reject_wrong_platform", 1)
 
     # Check mã nhiệm vụ
     mission_code = (mission["mission_code"] or "").strip()
     if mission_code and mission_code.lower() not in content_text.lower():
-        errors.append(f"Thiếu mã nhiệm vụ: {mission_code}")
+        add_rule_error(f"Thiếu mã nhiệm vụ: {mission_code}", "auto_reject_missing_code_hashtag", 0)
 
     # Check hashtag
     hashtags = (mission["required_hashtags"] or "").split()
     missing_hashtags = missing_tokens(content_text, hashtags)
     if missing_hashtags:
-        errors.append("Thiếu hashtag: " + ", ".join(missing_hashtags))
+        add_rule_error("Thiếu hashtag: " + ", ".join(missing_hashtags), "auto_reject_missing_code_hashtag", 0)
+
+    # Check minh chứng nếu admin bật bắt buộc
+    if auto_setting_enabled(settings, "require_proof_for_auto_approve", 0) and not proof_file:
+        soft_errors.append("Thiếu file/ảnh minh chứng nên chưa thể tự duyệt")
 
     # Check giới hạn bài/ngày/người theo nhiệm vụ
     max_per_day = int(mission["max_per_day"] or 2)
@@ -1117,19 +1176,22 @@ def auto_check_submission(conn, user_id, mission, post_url, content_text):
         """
         SELECT COUNT(*) AS c FROM submissions
         WHERE user_id=? AND mission_id=?
-          AND status IN ('auto_approved','approved','pending','need_review')
+          AND status IN ('auto_approved','approved','pending','need_review','need_more_proof')
           AND created_at BETWEEN ? AND ?
         """,
         (user_id, mission["id"], today_start, today_end),
     ).fetchone()["c"]
     if count_today >= max_per_day:
-        errors.append(f"Đã vượt giới hạn {max_per_day} bài/ngày cho nhiệm vụ này")
+        add_rule_error(f"Đã vượt giới hạn {max_per_day} bài/ngày cho nhiệm vụ này", "auto_reject_daily_limit", 1)
 
-    if errors:
-        return "need_review", " | ".join(errors)
+    if hard_errors:
+        return "rejected", "Tự động từ chối: " + " | ".join(hard_errors + soft_errors)
+
+    if soft_errors:
+        return "need_review", "Cần admin kiểm tra: " + " | ".join(soft_errors)
 
     notes.append("Tự động kiểm tra hợp lệ: đúng link, đúng thời gian, đủ mã nhiệm vụ/hashtag, không trùng, không vượt giới hạn")
-    if int(mission["auto_approve"] or 0) == 1:
+    if int(mission["auto_approve"] or 0) == 1 and auto_setting_enabled(settings, "auto_approve_passed_submissions", 1):
         return "auto_approved", " | ".join(notes)
     return "pending", "Tự động kiểm tra đạt điều kiện cơ bản, chờ admin duyệt"
 
@@ -1298,7 +1360,7 @@ def submit_mission(mission_id):
 
         with db() as conn:
             mission = conn.execute("SELECT * FROM missions WHERE id=?", (mission_id,)).fetchone()
-            status, note = auto_check_submission(conn, user["id"], mission, post_url, content_text)
+            status, note = auto_check_submission(conn, user["id"], mission, post_url, content_text, proof_file)
             points, credit = (0, 0)
             approved_at = None
             settings = get_app_settings(conn)
@@ -1330,6 +1392,8 @@ def submit_mission(mission_id):
                 add_points(conn, user["id"], submission_id, points, f"Hoàn thành nhiệm vụ: {mission['title']}")
                 add_credit(conn, user["id"], credit, "earn", f"Credit từ nhiệm vụ: {mission['title']}")
                 flash(f"Bài đã được duyệt tự động. Cộng {points} điểm và {credit} credit.", "success")
+            elif status == "rejected":
+                flash("Bài bị hệ thống tự động từ chối: " + note, "danger")
             else:
                 flash("Bài đã được ghi nhận và chuyển vào danh sách cần kiểm tra.", "warning")
         return redirect(url_for("my_submissions"))
@@ -2155,6 +2219,124 @@ def admin_reports_download():
         download_name=f"bao_cao_thi_dua_cong_bang_npoil_{month}.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+
+
+@app.route("/admin/automation", methods=["GET", "POST"])
+@login_required
+@admin_required
+def admin_automation():
+    if request.method == "POST":
+        with db() as conn:
+            for key in AUTOMATION_SETTING_KEYS:
+                # Checkbox: có tick = 1, không tick = 0
+                value = "1" if request.form.get(key) == "on" else "0"
+                conn.execute(
+                    """
+                    UPDATE app_settings
+                    SET setting_value=?, updated_at=?
+                    WHERE setting_key=?
+                    """,
+                    (value, now_text(), key),
+                )
+        flash("Đã cập nhật cơ chế tự động.", "success")
+        return redirect(url_for("admin_automation"))
+
+    with db() as conn:
+        settings = get_app_settings(conn)
+        stats = {
+            "auto_approved": conn.execute("SELECT COUNT(*) AS c FROM submissions WHERE status='auto_approved'").fetchone()["c"],
+            "need_review": conn.execute("SELECT COUNT(*) AS c FROM submissions WHERE status IN ('pending','need_review')").fetchone()["c"],
+            "rejected": conn.execute("SELECT COUNT(*) AS c FROM submissions WHERE status='rejected'").fetchone()["c"],
+            "need_more_proof": conn.execute("SELECT COUNT(*) AS c FROM submissions WHERE status='need_more_proof'").fetchone()["c"],
+        }
+    rules = [
+        {"key": key, "label": DEFAULT_SETTINGS[key]["label"], "value": settings.get(key, DEFAULT_SETTINGS[key]["value"])}
+        for key in AUTOMATION_SETTING_KEYS
+    ]
+    return render_template("admin/automation.html", rules=rules, stats=stats)
+
+
+@app.route("/admin/automation/run", methods=["POST"])
+@login_required
+@admin_required
+def admin_run_automation():
+    scanned = 0
+    auto_approved = 0
+    rejected = 0
+    need_review = 0
+    pending = 0
+
+    with db() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM submissions
+            WHERE status IN ('pending','need_review')
+            ORDER BY id ASC
+            LIMIT 200
+            """
+        ).fetchall()
+        settings = get_app_settings(conn)
+
+        for sub in rows:
+            mission = conn.execute("SELECT * FROM missions WHERE id=?", (sub["mission_id"],)).fetchone()
+            if not mission:
+                continue
+            scanned += 1
+            status, note = auto_check_submission(
+                conn,
+                sub["user_id"],
+                mission,
+                sub["post_url"],
+                sub["content_text"] or "",
+                sub["proof_file"],
+                exclude_submission_id=sub["id"],
+            )
+
+            form_values = {
+                "like_count": int(row_value(sub, "like_count", 0)),
+                "comment_count": int(row_value(sub, "comment_count", 0)),
+                "share_count": int(row_value(sub, "share_count", 0)),
+                "view_count": int(row_value(sub, "view_count", 0)),
+                "follower_before": int(row_value(sub, "follower_before", 0)),
+                "follower_after": int(row_value(sub, "follower_after", 0)),
+                "friends_before": int(row_value(sub, "friends_before", 0)),
+                "friends_after": int(row_value(sub, "friends_after", 0)),
+            }
+
+            points, credit = (0, 0)
+            approved_at = None
+            if status == "auto_approved":
+                points, credit = calculate_submission_score(mission, form_values, settings)
+                approved_at = now_text()
+                tx_exists = conn.execute(
+                    "SELECT id FROM point_transactions WHERE submission_id=? LIMIT 1",
+                    (sub["id"],),
+                ).fetchone()
+                if not tx_exists:
+                    add_points(conn, sub["user_id"], sub["id"], points, f"Tự động duyệt lại nhiệm vụ: {mission['title']}")
+                    add_credit(conn, sub["user_id"], credit, "earn", f"Credit tự động từ nhiệm vụ: {mission['title']}")
+                auto_approved += 1
+            elif status == "rejected":
+                rejected += 1
+            elif status == "need_review":
+                need_review += 1
+            else:
+                pending += 1
+
+            conn.execute(
+                """
+                UPDATE submissions
+                SET status=?, auto_check_note=?, points_awarded=?, credit_awarded=?, approved_at=?
+                WHERE id=?
+                """,
+                (status, note, points, credit, approved_at, sub["id"]),
+            )
+
+    flash(
+        f"Đã quét {scanned} bài: tự duyệt {auto_approved}, tự từ chối {rejected}, cần kiểm tra {need_review}, chờ duyệt {pending}.",
+        "success",
+    )
+    return redirect(url_for("admin_automation"))
 
 
 @app.route("/admin/scoring", methods=["GET", "POST"])
