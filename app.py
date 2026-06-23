@@ -846,6 +846,11 @@ def inject_globals():
         "unread_notifications": unread_count,
         "year": datetime.now().year,
         "month_now": current_month(),
+        # Helpers dùng trực tiếp trong template KPI/Leaderboard.
+        # Thiếu các helper này có thể gây lỗi 500 ở /admin/kpi trên Render.
+        "group_label": group_type_label,
+        "group_type_label": group_type_label,
+        "unit_name_from_row": unit_name_from_row,
     }
 
 
