@@ -1,0 +1,104 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+  <div>
+    <div class="text-muted small fw-bold"><i class="bi bi-tiktok me-1"></i>Kết nối API</div>
+    <h1 class="fw-black mb-1">Tài khoản TikTok</h1>
+    <p class="text-muted mb-0">Kết nối TikTok để hệ thống tự quét video công khai, kiểm tra mã nhiệm vụ/hashtag và tự ghi nhận điểm.</p>
+  </div>
+  {% if account and account.access_token %}
+    <form method="post" action="{{ url_for('disconnect_tiktok') }}" onsubmit="return confirm('Ngắt kết nối TikTok trên hệ thống?');">
+      <button class="btn btn-outline-danger"><i class="bi bi-x-circle me-1"></i>Ngắt kết nối</button>
+    </form>
+  {% else %}
+    <a class="btn btn-warning" href="{{ url_for('connect_tiktok') }}"><i class="bi bi-tiktok me-1"></i>Kết nối TikTok</a>
+  {% endif %}
+</div>
+
+{% if not configured %}
+<div class="alert alert-warning">
+  <strong>Chưa cấu hình TikTok API.</strong> Admin cần thêm <code>TIKTOK_CLIENT_KEY</code>, <code>TIKTOK_CLIENT_SECRET</code> và <code>TIKTOK_REDIRECT_URI</code> trên Render.
+  <div class="small mt-2">Redirect URI cần khai báo trong TikTok Developer App: <code>{{ redirect_uri }}</code></div>
+</div>
+{% endif %}
+
+<div class="row g-4">
+  <div class="col-lg-5">
+    <div class="card h-100">
+      <div class="card-body p-4">
+        <h5 class="fw-bold mb-3"><i class="bi bi-person-badge me-1"></i>Trạng thái kết nối</h5>
+        {% if account %}
+          <div class="d-flex gap-3 align-items-center mb-3">
+            {% if account.avatar_url %}<img src="{{ account.avatar_url }}" alt="avatar" style="width:72px;height:72px;border-radius:999px;object-fit:cover">{% endif %}
+            <div>
+              <div class="h4 mb-0 fw-black">{{ account.display_name or account.username or 'TikTok User' }}</div>
+              <div class="text-muted small">Open ID: {{ account.open_id or '-' }}</div>
+            </div>
+          </div>
+          <div class="mb-2"><span class="badge text-bg-success">Đã kết nối</span></div>
+          <div class="small text-muted">Scope: {{ account.scope or '-' }}</div>
+          <div class="small text-muted">Đồng bộ gần nhất: {{ account.last_sync_at or 'Chưa đồng bộ' }}</div>
+          <div class="small text-muted">Trạng thái: {{ account.sync_status or '-' }}</div>
+          {% if account.profile_deep_link %}<a class="btn btn-outline-success btn-sm mt-3" target="_blank" href="{{ account.profile_deep_link }}">Mở hồ sơ TikTok</a>{% endif %}
+        {% else %}
+          <p class="text-muted">Bạn chưa kết nối tài khoản TikTok.</p>
+          <a class="btn btn-warning" href="{{ url_for('connect_tiktok') }}"><i class="bi bi-tiktok me-1"></i>Kết nối TikTok</a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-7">
+    <div class="card h-100">
+      <div class="card-body p-4">
+        <h5 class="fw-bold mb-3"><i class="bi bi-info-circle me-1"></i>Cách hệ thống tự ghi nhận</h5>
+        <ol class="mb-0">
+          <li>Người tham gia đăng video TikTok công khai.</li>
+          <li>Caption video có <strong>mã nhiệm vụ</strong> và <strong>hashtag bắt buộc</strong>.</li>
+          <li>Admin vào trang TikTok Sync và bấm quét video.</li>
+          <li>Hệ thống tự tạo bài tham gia, cộng điểm/credit nếu video hợp lệ.</li>
+        </ol>
+        <div class="alert alert-light mt-3 mb-0 small">
+          Lưu ý: TikTok API chỉ đọc được dữ liệu mà người dùng đã cấp quyền và các video công khai theo scope được TikTok phê duyệt.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card mt-4">
+  <div class="card-header bg-white d-flex justify-content-between align-items-center">
+    <strong><i class="bi bi-camera-video me-1"></i>Video đã đồng bộ gần đây</strong>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead><tr><th>Video</th><th>Ngày đăng</th><th>Tương tác</th><th>Trạng thái</th></tr></thead>
+      <tbody>
+      {% for v in videos %}
+        <tr>
+          <td>
+            <div class="fw-bold">{{ v.description[:120] if v.description else v.video_id }}</div>
+            {% if v.share_url %}<a href="{{ v.share_url }}" target="_blank" class="small">Mở video</a>{% endif %}
+          </td>
+          <td>{{ v.create_time_text or '-' }}</td>
+          <td class="small">{{ v.view_count }} view · {{ v.like_count }} like · {{ v.comment_count }} comment · {{ v.share_count }} share</td>
+          <td><span class="badge text-bg-secondary">{{ v.sync_status }}</span></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4" class="text-center text-muted py-4">Chưa có video được đồng bộ.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card mt-4">
+  <div class="card-header bg-white"><strong>Lịch sử đồng bộ</strong></div>
+  <div class="card-body">
+    {% for log in logs %}
+      <div class="border-bottom py-2 small"><strong>{{ log.status }}</strong> · {{ log.message }} <span class="text-muted">{{ log.created_at }}</span></div>
+    {% else %}
+      <div class="text-muted small">Chưa có log đồng bộ.</div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

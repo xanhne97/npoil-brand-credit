@@ -1,0 +1,108 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+  <div>
+    <div class="text-muted small fw-bold"><i class="bi bi-tiktok me-1"></i>Admin · TikTok API</div>
+    <h1 class="fw-black mb-1">TikTok Sync</h1>
+    <p class="text-muted mb-0">Quét video công khai từ các tài khoản đã kết nối TikTok, tự tạo bài tham gia khi video có mã nhiệm vụ và hashtag.</p>
+  </div>
+  <form method="post" action="{{ url_for('admin_tiktok_sync_run') }}">
+    <input type="hidden" name="account_id" value="all">
+    <button class="btn btn-warning"><i class="bi bi-cloud-arrow-down-fill me-1"></i>Quét tất cả tài khoản</button>
+  </form>
+</div>
+
+{% if not configured %}
+<div class="alert alert-warning">
+  <strong>Chưa cấu hình TikTok API.</strong> Thêm biến môi trường trên Render:
+  <code>TIKTOK_CLIENT_KEY</code>, <code>TIKTOK_CLIENT_SECRET</code>, <code>TIKTOK_REDIRECT_URI</code>.
+  <div class="small mt-2">Redirect URI: <code>{{ redirect_uri }}</code></div>
+</div>
+{% endif %}
+
+<div class="row g-3 mb-4">
+  <div class="col-md-3"><div class="card stat-card"><div class="card-body"><span>Tài khoản kết nối</span><h3>{{ stats.accounts }}</h3></div></div></div>
+  <div class="col-md-3"><div class="card stat-card"><div class="card-body"><span>Video đã lưu</span><h3>{{ stats.videos }}</h3></div></div></div>
+  <div class="col-md-3"><div class="card stat-card"><div class="card-body"><span>Bài tự tạo</span><h3>{{ stats.created }}</h3></div></div></div>
+  <div class="col-md-3"><div class="card stat-card"><div class="card-body"><span>Chưa khớp nhiệm vụ</span><h3>{{ stats.no_match }}</h3></div></div></div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header bg-white"><strong>Tài khoản TikTok đã kết nối</strong></div>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead><tr><th>Người dùng</th><th>TikTok</th><th>Đồng bộ gần nhất</th><th>Trạng thái</th><th></th></tr></thead>
+      <tbody>
+      {% for a in accounts %}
+        <tr>
+          <td>
+            <div class="fw-bold">{{ a.user_name }}</div>
+            <div class="small text-muted">{{ group_type_label(a.group_type) }} · {{ unit_name_from_row(a) }}</div>
+          </td>
+          <td>{{ a.display_name or a.username or a.open_id or '-' }}</td>
+          <td>{{ a.last_sync_at or '-' }}</td>
+          <td class="small">{{ a.sync_status or '-' }}</td>
+          <td class="text-end">
+            <form method="post" action="{{ url_for('admin_tiktok_sync_run') }}">
+              <input type="hidden" name="account_id" value="{{ a.id }}">
+              <button class="btn btn-outline-success btn-sm"><i class="bi bi-arrow-repeat me-1"></i>Quét</button>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5" class="text-center text-muted py-4">Chưa có ai kết nối TikTok.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header bg-white"><strong>Video mới đồng bộ</strong></div>
+  <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0">
+      <thead><tr><th>User</th><th>Video</th><th>Ngày đăng</th><th>Chỉ số</th><th>Nhiệm vụ</th><th>Trạng thái</th></tr></thead>
+      <tbody>
+      {% for v in videos %}
+        <tr>
+          <td>{{ v.user_name or '-' }}</td>
+          <td style="min-width:320px">
+            <div class="fw-bold">{{ v.description[:140] if v.description else v.video_id }}</div>
+            {% if v.share_url %}<a href="{{ v.share_url }}" target="_blank" class="small">Mở video</a>{% endif %}
+          </td>
+          <td>{{ v.create_time_text or '-' }}</td>
+          <td class="small">{{ v.view_count }} view · {{ v.like_count }} like · {{ v.comment_count }} comment · {{ v.share_count }} share</td>
+          <td>{{ v.mission_title or '-' }}</td>
+          <td><span class="badge text-bg-secondary">{{ v.sync_status }}</span></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="text-center text-muted py-4">Chưa có video.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header bg-white"><strong>Log đồng bộ</strong></div>
+  <div class="table-responsive">
+    <table class="table table-sm mb-0">
+      <thead><tr><th>Thời gian</th><th>User</th><th>Trạng thái</th><th>Video</th><th>Bài tạo</th><th>Nội dung</th></tr></thead>
+      <tbody>
+      {% for log in logs %}
+        <tr>
+          <td>{{ log.created_at }}</td>
+          <td>{{ log.user_name or '-' }}</td>
+          <td>{{ log.status }}</td>
+          <td>{{ log.videos_seen }}</td>
+          <td>{{ log.submissions_created }}</td>
+          <td class="small">{{ log.message }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="text-center text-muted py-4">Chưa có log.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

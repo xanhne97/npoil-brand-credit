@@ -2,6 +2,8 @@ import io
 import json
 import os
 import sqlite3
+import secrets
+import time
 try:
     import psycopg2
     import psycopg2.extras
@@ -12,9 +14,10 @@ import uuid
 from datetime import datetime, date
 from functools import wraps
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 import pandas as pd
+import requests
 from dotenv import load_dotenv
 from flask import (
     Flask, abort, flash, redirect, render_template, request, send_file,
@@ -1048,6 +1051,66 @@ def init_db():
             );
             
 
+            CREATE TABLE IF NOT EXISTS tiktok_accounts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL UNIQUE,
+                open_id TEXT,
+                union_id TEXT,
+                display_name TEXT,
+                username TEXT,
+                avatar_url TEXT,
+                profile_deep_link TEXT,
+                access_token TEXT,
+                refresh_token TEXT,
+                access_expires_at INTEGER NOT NULL DEFAULT 0,
+                refresh_expires_at INTEGER NOT NULL DEFAULT 0,
+                scope TEXT,
+                last_sync_at TEXT,
+                sync_status TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS tiktok_videos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                tiktok_account_id INTEGER NOT NULL,
+                video_id TEXT UNIQUE NOT NULL,
+                title TEXT,
+                description TEXT,
+                share_url TEXT,
+                cover_image_url TEXT,
+                create_time INTEGER,
+                create_time_text TEXT,
+                view_count INTEGER NOT NULL DEFAULT 0,
+                like_count INTEGER NOT NULL DEFAULT 0,
+                comment_count INTEGER NOT NULL DEFAULT 0,
+                share_count INTEGER NOT NULL DEFAULT 0,
+                raw_json TEXT,
+                matched_mission_id INTEGER,
+                submission_id INTEGER,
+                sync_status TEXT NOT NULL DEFAULT 'synced',
+                created_at TEXT NOT NULL,
+                updated_at TEXT,
+                FOREIGN KEY(user_id) REFERENCES users(id),
+                FOREIGN KEY(tiktok_account_id) REFERENCES tiktok_accounts(id),
+                FOREIGN KEY(matched_mission_id) REFERENCES missions(id),
+                FOREIGN KEY(submission_id) REFERENCES submissions(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS tiktok_sync_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                tiktok_account_id INTEGER,
+                status TEXT NOT NULL,
+                message TEXT,
+                videos_seen INTEGER NOT NULL DEFAULT 0,
+                submissions_created INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
+            
+
             CREATE TABLE IF NOT EXISTS notifications (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
@@ -1230,6 +1293,61 @@ def init_db():
             );
             
 
+            CREATE TABLE IF NOT EXISTS tiktok_accounts (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL UNIQUE REFERENCES users(id),
+                open_id TEXT,
+                union_id TEXT,
+                display_name TEXT,
+                username TEXT,
+                avatar_url TEXT,
+                profile_deep_link TEXT,
+                access_token TEXT,
+                refresh_token TEXT,
+                access_expires_at INTEGER NOT NULL DEFAULT 0,
+                refresh_expires_at INTEGER NOT NULL DEFAULT 0,
+                scope TEXT,
+                last_sync_at TEXT,
+                sync_status TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS tiktok_videos (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                tiktok_account_id INTEGER NOT NULL REFERENCES tiktok_accounts(id),
+                video_id TEXT UNIQUE NOT NULL,
+                title TEXT,
+                description TEXT,
+                share_url TEXT,
+                cover_image_url TEXT,
+                create_time INTEGER,
+                create_time_text TEXT,
+                view_count INTEGER NOT NULL DEFAULT 0,
+                like_count INTEGER NOT NULL DEFAULT 0,
+                comment_count INTEGER NOT NULL DEFAULT 0,
+                share_count INTEGER NOT NULL DEFAULT 0,
+                raw_json TEXT,
+                matched_mission_id INTEGER REFERENCES missions(id),
+                submission_id INTEGER REFERENCES submissions(id),
+                sync_status TEXT NOT NULL DEFAULT 'synced',
+                created_at TEXT NOT NULL,
+                updated_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS tiktok_sync_logs (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER,
+                tiktok_account_id INTEGER,
+                status TEXT NOT NULL,
+                message TEXT,
+                videos_seen INTEGER NOT NULL DEFAULT 0,
+                submissions_created INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
+            
+
             CREATE TABLE IF NOT EXISTS notifications (
                 id SERIAL PRIMARY KEY,
                 user_id INTEGER NOT NULL,
@@ -1405,14 +1523,14 @@ def add_credit(conn, user_id, amount, tx_type, reason):
     return new_balance
 
 
-def add_points(conn, user_id, submission_id, points, reason):
+def add_points(conn, user_id, submission_id, points, reason, month_key=None, created_at=None):
     conn.execute(
         """
         INSERT INTO point_transactions
         (user_id, submission_id, points, reason, month_key, created_at)
         VALUES (?, ?, ?, ?, ?, ?)
         """,
-        (user_id, submission_id, points, reason, current_month(), now_text()),
+        (user_id, submission_id, points, reason, month_key or current_month(), created_at or now_text()),
     )
 
 
@@ -1598,6 +1716,435 @@ def auto_check_submission(conn, user_id, mission, post_url, content_text, proof_
     if int(mission["auto_approve"] or 0) == 1 and auto_setting_enabled(settings, "auto_approve_passed_submissions", 1):
         return "auto_approved", " | ".join(notes)
     return "pending", "Tự động kiểm tra đạt điều kiện cơ bản, chờ admin duyệt"
+
+# ===== V12 - TikTok API Connect & Auto Sync =====
+TIKTOK_AUTH_URL = "https://www.tiktok.com/v2/auth/authorize/"
+TIKTOK_TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/"
+TIKTOK_USER_INFO_URL = "https://open.tiktokapis.com/v2/user/info/"
+TIKTOK_VIDEO_LIST_URL = "https://open.tiktokapis.com/v2/video/list/"
+TIKTOK_USER_FIELDS = "open_id,union_id,avatar_url,display_name,profile_deep_link,username"
+TIKTOK_VIDEO_FIELDS = "id,title,video_description,duration,cover_image_url,share_url,view_count,like_count,comment_count,share_count,create_time"
+
+
+def tiktok_configured():
+    return bool(os.getenv("TIKTOK_CLIENT_KEY", "").strip() and os.getenv("TIKTOK_CLIENT_SECRET", "").strip())
+
+
+def tiktok_redirect_uri():
+    configured = os.getenv("TIKTOK_REDIRECT_URI", "").strip()
+    if configured:
+        return configured
+    try:
+        return url_for("tiktok_callback", _external=True)
+    except Exception:
+        return ""
+
+
+def tiktok_scopes():
+    return os.getenv("TIKTOK_SCOPES", "user.info.basic,video.list").strip()
+
+
+def tiktok_build_auth_url():
+    state = secrets.token_urlsafe(24)
+    session["tiktok_oauth_state"] = state
+    params = {
+        "client_key": os.getenv("TIKTOK_CLIENT_KEY", "").strip(),
+        "scope": tiktok_scopes(),
+        "response_type": "code",
+        "redirect_uri": tiktok_redirect_uri(),
+        "state": state,
+    }
+    return TIKTOK_AUTH_URL + "?" + urlencode(params)
+
+
+def tiktok_api_error_message(resp):
+    try:
+        data = resp.json()
+        return json.dumps(data, ensure_ascii=False)[:1000]
+    except Exception:
+        return (resp.text or "")[:1000]
+
+
+def tiktok_exchange_code(code):
+    payload = {
+        "client_key": os.getenv("TIKTOK_CLIENT_KEY", "").strip(),
+        "client_secret": os.getenv("TIKTOK_CLIENT_SECRET", "").strip(),
+        "code": code,
+        "grant_type": "authorization_code",
+        "redirect_uri": tiktok_redirect_uri(),
+    }
+    resp = requests.post(TIKTOK_TOKEN_URL, data=payload, headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=25)
+    if resp.status_code >= 400:
+        raise RuntimeError("TikTok token error: " + tiktok_api_error_message(resp))
+    return resp.json()
+
+
+def tiktok_refresh_token(account):
+    refresh_token = account["refresh_token"]
+    if not refresh_token:
+        raise RuntimeError("Tài khoản TikTok chưa có refresh token. Vui lòng kết nối lại TikTok.")
+    payload = {
+        "client_key": os.getenv("TIKTOK_CLIENT_KEY", "").strip(),
+        "client_secret": os.getenv("TIKTOK_CLIENT_SECRET", "").strip(),
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token,
+    }
+    resp = requests.post(TIKTOK_TOKEN_URL, data=payload, headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=25)
+    if resp.status_code >= 400:
+        raise RuntimeError("TikTok refresh token error: " + tiktok_api_error_message(resp))
+    return resp.json()
+
+
+def tiktok_get_user_info(access_token):
+    resp = requests.get(
+        TIKTOK_USER_INFO_URL,
+        params={"fields": TIKTOK_USER_FIELDS},
+        headers={"Authorization": f"Bearer {access_token}"},
+        timeout=25,
+    )
+    if resp.status_code >= 400:
+        # Some apps may not have every requested field approved. Retry with basic fields only.
+        resp = requests.get(
+            TIKTOK_USER_INFO_URL,
+            params={"fields": "open_id,union_id,avatar_url,display_name"},
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=25,
+        )
+    if resp.status_code >= 400:
+        raise RuntimeError("TikTok user info error: " + tiktok_api_error_message(resp))
+    data = resp.json()
+    return (data.get("data") or {}).get("user") or data.get("user") or {}
+
+
+def tiktok_list_videos(access_token, max_pages=5):
+    videos = []
+    cursor = None
+    has_more = True
+    pages = 0
+    while has_more and pages < max_pages:
+        body = {"max_count": 20}
+        if cursor is not None:
+            body["cursor"] = cursor
+        resp = requests.post(
+            TIKTOK_VIDEO_LIST_URL,
+            params={"fields": TIKTOK_VIDEO_FIELDS},
+            json=body,
+            headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+            timeout=30,
+        )
+        if resp.status_code >= 400:
+            raise RuntimeError("TikTok video list error: " + tiktok_api_error_message(resp))
+        data = resp.json()
+        payload = data.get("data") or {}
+        videos.extend(payload.get("videos") or [])
+        cursor = payload.get("cursor")
+        has_more = bool(payload.get("has_more")) and cursor is not None
+        pages += 1
+    return videos
+
+
+def tiktok_epoch_to_text(value):
+    try:
+        return datetime.fromtimestamp(int(value)).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return now_text()
+
+
+def upsert_tiktok_account(conn, user_id, token_data, user_info):
+    now_ts = int(time.time())
+    expires_in = int(token_data.get("expires_in") or 0)
+    refresh_expires_in = int(token_data.get("refresh_expires_in") or 0)
+    access_expires_at = now_ts + expires_in - 120 if expires_in else 0
+    refresh_expires_at = now_ts + refresh_expires_in - 120 if refresh_expires_in else 0
+
+    existing = conn.execute("SELECT * FROM tiktok_accounts WHERE user_id=?", (user_id,)).fetchone()
+    values = (
+        token_data.get("open_id") or user_info.get("open_id"),
+        user_info.get("union_id"),
+        user_info.get("display_name"),
+        user_info.get("username"),
+        user_info.get("avatar_url"),
+        user_info.get("profile_deep_link"),
+        token_data.get("access_token"),
+        token_data.get("refresh_token"),
+        access_expires_at,
+        refresh_expires_at,
+        token_data.get("scope"),
+        "Đã kết nối TikTok thành công",
+        now_text(),
+        user_id,
+    )
+    if existing:
+        conn.execute(
+            """
+            UPDATE tiktok_accounts
+            SET open_id=?, union_id=?, display_name=?, username=?, avatar_url=?, profile_deep_link=?,
+                access_token=?, refresh_token=?, access_expires_at=?, refresh_expires_at=?, scope=?,
+                sync_status=?, updated_at=?
+            WHERE user_id=?
+            """,
+            values,
+        )
+        return conn.execute("SELECT * FROM tiktok_accounts WHERE user_id=?", (user_id,)).fetchone()
+
+    insert_sql = """
+        INSERT INTO tiktok_accounts
+        (user_id, open_id, union_id, display_name, username, avatar_url, profile_deep_link,
+         access_token, refresh_token, access_expires_at, refresh_expires_at, scope, sync_status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """
+    if USE_POSTGRES:
+        insert_sql += " RETURNING id"
+    conn.execute(
+        insert_sql,
+        (
+            user_id,
+            token_data.get("open_id") or user_info.get("open_id"),
+            user_info.get("union_id"),
+            user_info.get("display_name"),
+            user_info.get("username"),
+            user_info.get("avatar_url"),
+            user_info.get("profile_deep_link"),
+            token_data.get("access_token"),
+            token_data.get("refresh_token"),
+            access_expires_at,
+            refresh_expires_at,
+            token_data.get("scope"),
+            "Đã kết nối TikTok thành công",
+            now_text(),
+            now_text(),
+        ),
+    )
+    return conn.execute("SELECT * FROM tiktok_accounts WHERE user_id=?", (user_id,)).fetchone()
+
+
+def ensure_tiktok_access_token(conn, account):
+    if int(account["access_expires_at"] or 0) > int(time.time()) + 120:
+        return account["access_token"], account
+    token_data = tiktok_refresh_token(account)
+    now_ts = int(time.time())
+    access_expires_at = now_ts + int(token_data.get("expires_in") or 0) - 120
+    refresh_expires_at = now_ts + int(token_data.get("refresh_expires_in") or 0) - 120 if token_data.get("refresh_expires_in") else int(account["refresh_expires_at"] or 0)
+    conn.execute(
+        """
+        UPDATE tiktok_accounts
+        SET access_token=?, refresh_token=?, access_expires_at=?, refresh_expires_at=?, scope=?, updated_at=?
+        WHERE id=?
+        """,
+        (
+            token_data.get("access_token"),
+            token_data.get("refresh_token") or account["refresh_token"],
+            access_expires_at,
+            refresh_expires_at,
+            token_data.get("scope") or account["scope"],
+            now_text(),
+            account["id"],
+        ),
+    )
+    fresh = conn.execute("SELECT * FROM tiktok_accounts WHERE id=?", (account["id"],)).fetchone()
+    return fresh["access_token"], fresh
+
+
+def video_description_text(video):
+    return (video.get("video_description") or video.get("title") or "").strip()
+
+
+def find_matching_tiktok_mission(conn, description, create_time_text):
+    try:
+        video_date = datetime.strptime(create_time_text[:10], "%Y-%m-%d").date()
+    except Exception:
+        video_date = date.today()
+    rows = conn.execute(
+        """
+        SELECT * FROM missions
+        WHERE status='active' AND platform IN ('tiktok','both')
+        ORDER BY id DESC
+        """
+    ).fetchall()
+    for mission in rows:
+        start = parse_date(mission["start_date"])
+        end = parse_date(mission["end_date"])
+        if start and video_date < start:
+            continue
+        if end and video_date > end:
+            continue
+        mission_code = (mission["mission_code"] or "").strip()
+        if mission_code and mission_code.lower() not in (description or "").lower():
+            continue
+        missing = missing_tokens(description, (mission["required_hashtags"] or "").split())
+        if missing:
+            continue
+        return mission
+    return None
+
+
+def save_tiktok_video(conn, account, video, sync_status="synced", mission_id=None, submission_id=None):
+    video_id = str(video.get("id") or "").strip()
+    if not video_id:
+        return None
+    create_time = int(video.get("create_time") or 0)
+    create_time_text = tiktok_epoch_to_text(create_time)
+    description = video_description_text(video)
+    existing = conn.execute("SELECT * FROM tiktok_videos WHERE video_id=?", (video_id,)).fetchone()
+    values = (
+        account["user_id"], account["id"], video.get("title"), description,
+        video.get("share_url") or "", video.get("cover_image_url") or "",
+        create_time, create_time_text,
+        int(video.get("view_count") or 0), int(video.get("like_count") or 0),
+        int(video.get("comment_count") or 0), int(video.get("share_count") or 0),
+        json.dumps(video, ensure_ascii=False), mission_id, submission_id, sync_status, now_text(), video_id,
+    )
+    if existing:
+        conn.execute(
+            """
+            UPDATE tiktok_videos
+            SET user_id=?, tiktok_account_id=?, title=?, description=?, share_url=?, cover_image_url=?,
+                create_time=?, create_time_text=?, view_count=?, like_count=?, comment_count=?, share_count=?,
+                raw_json=?, matched_mission_id=COALESCE(?, matched_mission_id), submission_id=COALESCE(?, submission_id),
+                sync_status=?, updated_at=?
+            WHERE video_id=?
+            """,
+            values,
+        )
+        return conn.execute("SELECT * FROM tiktok_videos WHERE video_id=?", (video_id,)).fetchone()
+    insert_sql = """
+        INSERT INTO tiktok_videos
+        (user_id, tiktok_account_id, video_id, title, description, share_url, cover_image_url,
+         create_time, create_time_text, view_count, like_count, comment_count, share_count,
+         raw_json, matched_mission_id, submission_id, sync_status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """
+    if USE_POSTGRES:
+        insert_sql += " RETURNING id"
+    conn.execute(
+        insert_sql,
+        (
+            account["user_id"], account["id"], video_id, video.get("title"), description,
+            video.get("share_url") or "", video.get("cover_image_url") or "",
+            create_time, create_time_text,
+            int(video.get("view_count") or 0), int(video.get("like_count") or 0),
+            int(video.get("comment_count") or 0), int(video.get("share_count") or 0),
+            json.dumps(video, ensure_ascii=False), mission_id, submission_id, sync_status, now_text(), now_text(),
+        ),
+    )
+    return conn.execute("SELECT * FROM tiktok_videos WHERE video_id=?", (video_id,)).fetchone()
+
+
+def create_submission_from_tiktok_video(conn, account, mission, video):
+    video_id = str(video.get("id") or "").strip()
+    description = video_description_text(video)
+    share_url = normalize_url(video.get("share_url") or f"https://www.tiktok.com/@{account['username'] or 'user'}/video/{video_id}")
+    create_time_text = tiktok_epoch_to_text(video.get("create_time") or 0)
+
+    existing = conn.execute(
+        "SELECT id FROM submissions WHERE post_url=? AND status IN ('auto_approved','approved','pending','need_review','need_more_proof')",
+        (share_url,),
+    ).fetchone()
+    if existing:
+        return existing["id"], "duplicate_submission"
+
+    # Giới hạn số bài/ngày theo ngày đăng video, không phải ngày chạy sync.
+    video_day = create_time_text[:10]
+    count_day = conn.execute(
+        """
+        SELECT COUNT(*) AS c FROM submissions
+        WHERE user_id=? AND mission_id=?
+          AND status IN ('auto_approved','approved','pending','need_review','need_more_proof')
+          AND substr(created_at,1,10)=?
+        """,
+        (account["user_id"], mission["id"], video_day),
+    ).fetchone()["c"]
+    if count_day >= int(mission["max_per_day"] or 2):
+        return None, "daily_limit"
+
+    form_values = {
+        "like_count": int(video.get("like_count") or 0),
+        "comment_count": int(video.get("comment_count") or 0),
+        "share_count": int(video.get("share_count") or 0),
+        "view_count": int(video.get("view_count") or 0),
+        "follower_before": 0,
+        "follower_after": 0,
+        "friends_before": 0,
+        "friends_after": 0,
+    }
+    settings = get_app_settings(conn)
+    points, credit = calculate_submission_score(mission, form_values, settings)
+    insert_sql = """
+        INSERT INTO submissions
+        (user_id, mission_id, post_url, content_text, proof_file, platform,
+         like_count, comment_count, share_count, view_count,
+         follower_before, follower_after, friends_before, friends_after,
+         status, auto_check_note, points_awarded, credit_awarded, created_at, approved_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """
+    if USE_POSTGRES:
+        insert_sql += " RETURNING id"
+    cur = conn.execute(
+        insert_sql,
+        (
+            account["user_id"], mission["id"], share_url, description, "", "tiktok",
+            form_values["like_count"], form_values["comment_count"], form_values["share_count"], form_values["view_count"],
+            0, 0, 0, 0,
+            "auto_approved",
+            "TikTok API tự động ghi nhận: video có mã nhiệm vụ/hashtag, đúng thời gian, không trùng link.",
+            points, credit, create_time_text, create_time_text,
+        ),
+    )
+    submission_id = get_inserted_id(cur)
+    add_points(conn, account["user_id"], submission_id, points, f"TikTok API tự động duyệt: {mission['title']}", month_key=create_time_text[:7], created_at=create_time_text)
+    add_credit(conn, account["user_id"], credit, "earn", f"TikTok API tự động duyệt: {mission['title']}")
+    create_notification(
+        conn,
+        account["user_id"],
+        "Video TikTok đã được ghi nhận tự động",
+        f"Video TikTok phù hợp nhiệm vụ {mission['title']} đã được cộng {points} điểm và {credit} credit.",
+        "success",
+        url_for("my_submissions"),
+    )
+    return submission_id, "created"
+
+
+def sync_tiktok_account(conn, account_id):
+    account = conn.execute("SELECT * FROM tiktok_accounts WHERE id=?", (account_id,)).fetchone()
+    if not account:
+        return {"status": "error", "message": "Không tìm thấy tài khoản TikTok", "videos_seen": 0, "submissions_created": 0}
+    videos_seen = 0
+    submissions_created = 0
+    try:
+        access_token, account = ensure_tiktok_access_token(conn, account)
+        videos = tiktok_list_videos(access_token, max_pages=setting_int(get_app_settings(conn), "tiktok_sync_max_pages", 5))
+        videos_seen = len(videos)
+        for video in videos:
+            description = video_description_text(video)
+            create_time_text = tiktok_epoch_to_text(video.get("create_time") or 0)
+            mission = find_matching_tiktok_mission(conn, description, create_time_text)
+            status = "no_matching_mission"
+            mission_id = None
+            submission_id = None
+            if mission:
+                mission_id = mission["id"]
+                submission_id, result = create_submission_from_tiktok_video(conn, account, mission, video)
+                status = result
+                if result == "created":
+                    submissions_created += 1
+            save_tiktok_video(conn, account, video, sync_status=status, mission_id=mission_id, submission_id=submission_id)
+        msg = f"Đồng bộ {videos_seen} video, tạo {submissions_created} bài tham gia."
+        conn.execute("UPDATE tiktok_accounts SET last_sync_at=?, sync_status=?, updated_at=? WHERE id=?", (now_text(), msg, now_text(), account_id))
+        conn.execute(
+            "INSERT INTO tiktok_sync_logs (user_id, tiktok_account_id, status, message, videos_seen, submissions_created, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (account["user_id"], account_id, "success", msg, videos_seen, submissions_created, now_text()),
+        )
+        return {"status": "success", "message": msg, "videos_seen": videos_seen, "submissions_created": submissions_created}
+    except Exception as exc:
+        msg = str(exc)[:1000]
+        conn.execute("UPDATE tiktok_accounts SET last_sync_at=?, sync_status=?, updated_at=? WHERE id=?", (now_text(), "Lỗi: " + msg, now_text(), account_id))
+        conn.execute(
+            "INSERT INTO tiktok_sync_logs (user_id, tiktok_account_id, status, message, videos_seen, submissions_created, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (account["user_id"], account_id, "error", msg, videos_seen, submissions_created, now_text()),
+        )
+        return {"status": "error", "message": msg, "videos_seen": videos_seen, "submissions_created": submissions_created}
+
+# ===== End V12 - TikTok API Connect & Auto Sync =====
 
 
 @app.route("/")
@@ -3083,6 +3630,198 @@ def admin_run_automation():
     )
     return redirect(url_for("admin_automation"))
 
+
+
+@app.route("/tiktok")
+@login_required
+def tiktok_account():
+    user = current_user()
+    with db() as conn:
+        account = conn.execute("SELECT * FROM tiktok_accounts WHERE user_id=?", (user["id"],)).fetchone()
+        videos = []
+        logs = []
+        if account:
+            videos = conn.execute(
+                """
+                SELECT * FROM tiktok_videos
+                WHERE user_id=?
+                ORDER BY COALESCE(create_time,0) DESC, id DESC
+                LIMIT 20
+                """,
+                (user["id"],),
+            ).fetchall()
+            logs = conn.execute(
+                """
+                SELECT * FROM tiktok_sync_logs
+                WHERE user_id=?
+                ORDER BY id DESC
+                LIMIT 5
+                """,
+                (user["id"],),
+            ).fetchall()
+    return render_template(
+        "tiktok_account.html",
+        account=account,
+        videos=videos,
+        logs=logs,
+        configured=tiktok_configured(),
+        redirect_uri=tiktok_redirect_uri(),
+    )
+
+
+@app.route("/connect/tiktok")
+@login_required
+def connect_tiktok():
+    if not tiktok_configured():
+        flash("Chưa cấu hình TIKTOK_CLIENT_KEY/TIKTOK_CLIENT_SECRET trên Render.", "warning")
+        return redirect(url_for("tiktok_account"))
+    return redirect(tiktok_build_auth_url())
+
+
+@app.route("/auth/tiktok/callback")
+@login_required
+def tiktok_callback():
+    error = request.args.get("error") or request.args.get("error_description")
+    if error:
+        flash("TikTok trả về lỗi: " + str(error), "danger")
+        return redirect(url_for("tiktok_account"))
+
+    state = request.args.get("state", "")
+    if not state or state != session.get("tiktok_oauth_state"):
+        flash("State TikTok không hợp lệ. Vui lòng kết nối lại.", "danger")
+        return redirect(url_for("tiktok_account"))
+
+    code = request.args.get("code", "")
+    if not code:
+        flash("Không nhận được authorization code từ TikTok.", "danger")
+        return redirect(url_for("tiktok_account"))
+
+    user = current_user()
+    try:
+        token_data = tiktok_exchange_code(code)
+        access_token = token_data.get("access_token")
+        user_info = tiktok_get_user_info(access_token) if access_token else {}
+        with db() as conn:
+            account = upsert_tiktok_account(conn, user["id"], token_data, user_info)
+            create_notification(
+                conn,
+                user["id"],
+                "Đã kết nối TikTok",
+                "Tài khoản TikTok của bạn đã được kết nối. Hệ thống có thể quét video công khai khi admin chạy đồng bộ.",
+                "success",
+                url_for("tiktok_account"),
+                created_by=user["id"],
+            )
+            notify_admins(
+                conn,
+                "Người dùng đã kết nối TikTok",
+                f"{user['name']} vừa kết nối TikTok: {account['display_name'] or account['username'] or account['open_id']}",
+                "admin",
+                url_for("admin_tiktok_sync"),
+                created_by=user["id"],
+            )
+        session.pop("tiktok_oauth_state", None)
+        flash("Đã kết nối TikTok thành công.", "success")
+    except Exception as exc:
+        flash("Không thể kết nối TikTok: " + str(exc)[:600], "danger")
+    return redirect(url_for("tiktok_account"))
+
+
+@app.route("/disconnect/tiktok", methods=["POST"])
+@login_required
+def disconnect_tiktok():
+    user = current_user()
+    with db() as conn:
+        conn.execute(
+            """
+            UPDATE tiktok_accounts
+            SET access_token='', refresh_token='', sync_status='Người dùng đã ngắt kết nối TikTok', updated_at=?
+            WHERE user_id=?
+            """,
+            (now_text(), user["id"]),
+        )
+    flash("Đã ngắt kết nối TikTok trên hệ thống.", "success")
+    return redirect(url_for("tiktok_account"))
+
+
+@app.route("/admin/tiktok-sync")
+@login_required
+@admin_required
+def admin_tiktok_sync():
+    with db() as conn:
+        accounts = conn.execute(
+            """
+            SELECT ta.*, u.name AS user_name, u.email, u.group_type, u.department, u.distributor_name, u.dealer_name
+            FROM tiktok_accounts ta
+            JOIN users u ON u.id=ta.user_id
+            ORDER BY ta.id DESC
+            """
+        ).fetchall()
+        logs = conn.execute(
+            """
+            SELECT l.*, u.name AS user_name
+            FROM tiktok_sync_logs l
+            LEFT JOIN users u ON u.id=l.user_id
+            ORDER BY l.id DESC
+            LIMIT 20
+            """
+        ).fetchall()
+        videos = conn.execute(
+            """
+            SELECT tv.*, u.name AS user_name, m.title AS mission_title
+            FROM tiktok_videos tv
+            LEFT JOIN users u ON u.id=tv.user_id
+            LEFT JOIN missions m ON m.id=tv.matched_mission_id
+            ORDER BY tv.id DESC
+            LIMIT 30
+            """
+        ).fetchall()
+        stats = {
+            "accounts": len(accounts),
+            "videos": conn.execute("SELECT COUNT(*) AS c FROM tiktok_videos").fetchone()["c"],
+            "created": conn.execute("SELECT COUNT(*) AS c FROM tiktok_videos WHERE sync_status='created'").fetchone()["c"],
+            "no_match": conn.execute("SELECT COUNT(*) AS c FROM tiktok_videos WHERE sync_status='no_matching_mission'").fetchone()["c"],
+        }
+    return render_template(
+        "admin/tiktok_sync.html",
+        accounts=accounts,
+        logs=logs,
+        videos=videos,
+        stats=stats,
+        configured=tiktok_configured(),
+        redirect_uri=tiktok_redirect_uri(),
+    )
+
+
+@app.route("/admin/tiktok-sync/run", methods=["POST"])
+@login_required
+@admin_required
+def admin_tiktok_sync_run():
+    if not tiktok_configured():
+        flash("Chưa cấu hình TikTok API. Vui lòng thêm TIKTOK_CLIENT_KEY/TIKTOK_CLIENT_SECRET trên Render.", "warning")
+        return redirect(url_for("admin_tiktok_sync"))
+    account_id = request.form.get("account_id", "all")
+    total_accounts = 0
+    total_videos = 0
+    total_created = 0
+    errors = []
+    with db() as conn:
+        if account_id != "all" and str(account_id).isdigit():
+            accounts = conn.execute("SELECT * FROM tiktok_accounts WHERE id=?", (int(account_id),)).fetchall()
+        else:
+            accounts = conn.execute("SELECT * FROM tiktok_accounts WHERE COALESCE(access_token,'')<>''").fetchall()
+        for account in accounts:
+            total_accounts += 1
+            result = sync_tiktok_account(conn, account["id"])
+            total_videos += int(result.get("videos_seen") or 0)
+            total_created += int(result.get("submissions_created") or 0)
+            if result.get("status") != "success":
+                errors.append(result.get("message") or "Lỗi không xác định")
+    if errors:
+        flash(f"Đã sync {total_accounts} tài khoản, {total_videos} video, tạo {total_created} bài. Có lỗi: " + " | ".join(errors[:3]), "warning")
+    else:
+        flash(f"Đã sync {total_accounts} tài khoản, {total_videos} video, tự tạo {total_created} bài tham gia.", "success")
+    return redirect(url_for("admin_tiktok_sync"))
 
 
 

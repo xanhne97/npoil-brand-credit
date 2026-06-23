@@ -144,3 +144,34 @@ V11 - Dashboard KPI tổng quan
 - Theo dõi: người tham gia, người hoạt động, bài gửi, bài hợp lệ, bài chờ duyệt, credit đã cấp/đã dùng, lượt tìm kiếm khách hàng, số lead trả về, top người dẫn đầu, KPI theo nhóm và nhiệm vụ hiệu quả.
 - Có nút xuất Excel KPI tại /admin/kpi/download.
 - Menu Admin có thêm mục “KPI tổng quan”.
+
+==============================
+V12 - KẾT NỐI TIKTOK API
+==============================
+
+Bản V12 bổ sung:
+- Người dùng kết nối tài khoản TikTok tại /tiktok
+- Admin đồng bộ video TikTok tại /admin/tiktok-sync
+- Hệ thống tự quét video công khai, kiểm tra mã nhiệm vụ + hashtag
+- Nếu video khớp nhiệm vụ, hệ thống tự tạo bài tham gia, cộng điểm và credit
+
+Cấu hình Render cần thêm Environment Variables:
+TIKTOK_CLIENT_KEY=client key từ TikTok Developer App
+TIKTOK_CLIENT_SECRET=client secret từ TikTok Developer App
+TIKTOK_REDIRECT_URI=https://ten-app-cua-ban.onrender.com/auth/tiktok/callback
+TIKTOK_SCOPES=user.info.basic,video.list
+
+Trên TikTok Developer Portal, cần khai báo Redirect URI giống chính xác TIKTOK_REDIRECT_URI.
+
+Luồng test:
+1. Deploy bản V12 lên Render.
+2. Vào /tiktok bằng tài khoản user.
+3. Bấm Kết nối TikTok.
+4. Sau khi kết nối thành công, admin vào /admin/tiktok-sync.
+5. Bấm Quét tất cả tài khoản hoặc Quét từng tài khoản.
+6. Video TikTok công khai có mã nhiệm vụ và hashtag sẽ được tự ghi nhận.
+
+Lưu ý:
+- TikTok API chỉ lấy được dữ liệu người dùng đã cấp quyền.
+- Video phải công khai và có caption chứa mã nhiệm vụ + hashtag.
+- Các chỉ số like/comment/share/view được lưu lại từ API để về sau có thể bật công thức điểm tự động.
